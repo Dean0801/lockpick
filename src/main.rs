@@ -144,7 +144,10 @@ async fn main() {
     let duplicates = Some(lockpick::analyzer::duplicates::detect_duplicates(&graph));
 
     // Build result and report
-    let result = lockpick::AnalysisResult { unused, vulns, duplicates, size: None };
+    // Size analysis
+    let size = Some(lockpick::analyzer::size::analyze_size(&project_path, &graph));
+
+    let result = lockpick::AnalysisResult { unused, vulns, duplicates, size };
 
     let reporter: Box<dyn Reporter> = match cli.format {
         OutputFormat::Terminal => Box::new(TerminalReporter),

@@ -11,6 +11,7 @@ impl Reporter for TerminalReporter {
     fn report(&self, result: &AnalysisResult, i18n: &I18n) -> Result<(), String> {
         print_unused(result, i18n);
         print_vulns(result, i18n);
+        print_size(result, i18n);
         println!("\n{}", i18n.t("scan_complete").green());
         Ok(())
     }
@@ -92,4 +93,37 @@ fn print_vulns(result: &AnalysisResult, i18n: &I18n) {
     }
 
     println!("{table}");
+}
+
+fn print_size(result: &AnalysisResult, i18n: &I18n) {
+    let Some(ref size) = result.size else { return; };
+    if size.entries.is_empty() { return; }
+
+    println!("\n{} {} ({} {})",
+        "📊".bold(),
+        i18n.t("size_analysis").bold(),
+        format_bytes(size.total_bytes),
+        i18n.t("total_size")
+    );
+
+    let mut table = Table::new();
+    table.set_content_arrangement(ContentArrangement::Dynamic);
+    table.set_header(vec![i18n.t("package"), i18n.t("size")]);
+
+    for entry in &size.entries {
+        if entry.size_bytes > 0 {
+            table.add_row(vec![&entry.name, &format_bytes(entry.size_bytes)]);
+        }
+    }
+    println!("{table}");
+}
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
 }

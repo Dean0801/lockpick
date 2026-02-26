@@ -53,6 +53,9 @@ impl I18n {
                 "no_vulns" => "未发现安全漏洞",
                 "scan_complete" => "扫描完成",
                 "network_error" => "网络请求失败，跳过漏洞扫描",
+                "size_analysis" => "依赖体积分析",
+                "total_size" => "总计",
+                "size" => "体积",
                 _ => key,
             },
             Lang::En => match key {
@@ -76,6 +79,9 @@ impl I18n {
                 "no_vulns" => "No vulnerabilities found",
                 "scan_complete" => "Scan complete",
                 "network_error" => "Network error, skipping vulnerability scan",
+                "size_analysis" => "Dependency Size Analysis",
+                "total_size" => "Total",
+                "size" => "Size",
                 _ => key,
             },
         }
