@@ -87,17 +87,8 @@ async fn main() {
         eprintln!("{}", i18n.t("analyzing"));
     }
 
-    // Parse lockfile
-    let lockfile_path = project_path.join("pnpm-lock.yaml");
-    let lockfile_content = match std::fs::read_to_string(&lockfile_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error: cannot read {}: {e}", lockfile_path.display());
-            std::process::exit(1);
-        }
-    };
-
-    let graph = match lockpick::lockfile::pnpm::parse(&lockfile_content) {
+    // Parse lockfile (auto-detect)
+    let graph = match lockpick::lockfile::detect_and_parse(&project_path) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("Error: {e}");
