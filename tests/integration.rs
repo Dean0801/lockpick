@@ -36,15 +36,16 @@ fn test_full_unused_detection_pipeline() {
     // 3. Detect unused
     let report = detect_unused(&graph, &used, false);
 
-    // typescript and @types/react are dev deps not imported in source
+    // typescript is a dev dep not imported in source
+    // @types/react is smart-associated with react (which IS used), so it should NOT be unused
     let unused_names: Vec<&str> = report.unused.iter().map(|d| d.name.as_str()).collect();
     assert!(
         unused_names.contains(&"typescript"),
         "typescript should be unused"
     );
     assert!(
-        unused_names.contains(&"@types/react"),
-        "@types/react should be unused"
+        !unused_names.contains(&"@types/react"),
+        "@types/react should NOT be unused when react is used"
     );
     assert!(
         !unused_names.contains(&"react"),

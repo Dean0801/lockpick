@@ -2,6 +2,22 @@ use std::collections::HashSet;
 
 use crate::{DepType, DependencyGraph, UnusedDep, UnusedReport};
 
+/// Extract the base package name from a `@types/X` package.
+/// e.g. `@types/react` → `Some("react")`, `@types/babel__core` → `Some("@babel/core")`
+/// Returns `None` for non-@types packages.
+fn get_types_base(name: &str) -> Option<String> {
+    let suffix = name.strip_prefix("@types/")?;
+    if suffix.contains("__") {
+        // Scoped package: @types/babel__core → @babel/core
+        let mut parts = suffix.splitn(2, "__");
+        let scope = parts.next()?;
+        let pkg = parts.next()?;
+        Some(format!("@{scope}/{pkg}"))
+    } else {
+        Some(suffix.to_string())
+    }
+}
+
 /// Detect unused dependencies by comparing declared deps vs actual imports
 pub fn detect_unused(
     graph: &DependencyGraph,
@@ -23,6 +39,12 @@ pub fn detect_unused(
     if !skip_dev {
         for (name, info) in &graph.dev_dependencies {
             if !used.contains(name.as_str()) {
+                // Smart @types/* association: if the base package is used, skip
+                if let Some(base) = get_types_base(name) {
+                    if used.contains(base.as_str()) {
+                        continue;
+                    }
+                }
                 unused.push(UnusedDep {
                     name: name.clone(),
                     version: info.version.clone(),
@@ -108,5 +130,31 @@ mod tests {
         // Only lodash (prod) should be unused, typescript (dev) skipped
         assert_eq!(report.unused.len(), 1);
         assert_eq!(report.unused[0].name, "lodash");
+    }
+
+    #[test]
+    fn test_types_smart_association() {
+        let mut graph = make_graph();
+        graph.dev_dependencies.insert(
+            "@types/react".into(),
+            PackageInfo {
+                name: "@types/react".into(),
+                version: "18.2.0".into(),
+                integrity: None,
+            },
+        );
+
+        // react is used, so @types/react should NOT be marked as unused
+        let used: HashSet<String> = ["react"].iter().map(|s| s.to_string()).collect();
+        let report = detect_unused(&graph, &used, false);
+
+        let unused_names: Vec<&str> = report.unused.iter().map(|d| d.name.as_str()).collect();
+        assert!(
+            !unused_names.contains(&"@types/react"),
+            "@types/react should not be unused when react is used"
+        );
+        // lodash (prod) and typescript (dev) should still be unused
+        assert!(unused_names.contains(&"lodash"));
+        assert!(unused_names.contains(&"typescript"));
     }
 }
