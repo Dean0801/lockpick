@@ -150,7 +150,7 @@ async fn main() {
     };
 
     // Build result and report
-    let result = lockpick::AnalysisResult { unused, vulns };
+    let result = lockpick::AnalysisResult { unused, vulns, duplicates: None, size: None };
 
     let reporter: Box<dyn Reporter> = match cli.format {
         OutputFormat::Terminal => Box::new(TerminalReporter),

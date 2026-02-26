@@ -76,6 +76,8 @@ mod tests {
         DependencyGraph {
             dependencies: deps,
             dev_dependencies: dev,
+            lockfile_type: crate::LockfileType::Pnpm,
+            all_packages: HashMap::new(),
         }
     }
 

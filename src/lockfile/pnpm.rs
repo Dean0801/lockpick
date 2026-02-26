@@ -94,6 +94,8 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
     Ok(DependencyGraph {
         dependencies: deps,
         dev_dependencies: dev_deps,
+        lockfile_type: crate::LockfileType::Pnpm,
+        all_packages: HashMap::new(),
     })
 }
 
