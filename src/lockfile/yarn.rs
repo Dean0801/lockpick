@@ -46,9 +46,7 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
                 i += 1;
             }
 
-            let ver = version.ok_or_else(|| {
-                format!("Missing version for package '{name}'")
-            })?;
+            let ver = version.ok_or_else(|| format!("Missing version for package '{name}'"))?;
 
             all_packages
                 .entry(name.clone())
@@ -91,9 +89,9 @@ fn extract_package_name(header: &str) -> Result<String, String> {
 
     // For scoped packages like @scope/pkg@^1.0.0, the last '@' is the version separator
     // For regular packages like lodash@^4.17.21, the first '@' is the version separator
-    if header.starts_with('@') {
+    if let Some(stripped) = header.strip_prefix('@') {
         // Scoped package: find the second '@'
-        match header[1..].find('@') {
+        match stripped.find('@') {
             Some(pos) => Ok(header[..pos + 1].to_string()),
             None => Err(format!("Invalid scoped package entry: {header}")),
         }
@@ -101,16 +99,18 @@ fn extract_package_name(header: &str) -> Result<String, String> {
         // Regular package: split at first '@'
         match header.find('@') {
             Some(pos) => Ok(header[..pos].to_string()),
-            None => Err(format!("Invalid package entry (no version specifier): {header}")),
+            None => Err(format!(
+                "Invalid package entry (no version specifier): {header}"
+            )),
         }
     }
 }
 
 /// Extract a quoted value from a line like `version "1.2.3"` or `integrity "sha512-..."`.
 fn extract_quoted_value(line: &str, key: &str) -> Result<String, String> {
-    let after_key = line.strip_prefix(key).ok_or_else(|| {
-        format!("Line does not start with '{key}': {line}")
-    })?;
+    let after_key = line
+        .strip_prefix(key)
+        .ok_or_else(|| format!("Line does not start with '{key}': {line}"))?;
     let trimmed = after_key.trim();
     let unquoted = trimmed.trim_matches('"');
     Ok(unquoted.to_string())

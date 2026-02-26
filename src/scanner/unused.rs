@@ -9,9 +9,7 @@ fn get_types_base(name: &str) -> Option<String> {
     let suffix = name.strip_prefix("@types/")?;
     if suffix.contains("__") {
         // Scoped package: @types/babel__core → @babel/core
-        let mut parts = suffix.splitn(2, "__");
-        let scope = parts.next()?;
-        let pkg = parts.next()?;
+        let (scope, pkg) = suffix.split_once("__")?;
         Some(format!("@{scope}/{pkg}"))
     } else {
         Some(suffix.to_string())
@@ -40,10 +38,10 @@ pub fn detect_unused(
         for (name, info) in &graph.dev_dependencies {
             if !used.contains(name.as_str()) {
                 // Smart @types/* association: if the base package is used, skip
-                if let Some(base) = get_types_base(name) {
-                    if used.contains(base.as_str()) {
-                        continue;
-                    }
+                if let Some(base) = get_types_base(name)
+                    && used.contains(base.as_str())
+                {
+                    continue;
                 }
                 unused.push(UnusedDep {
                     name: name.clone(),

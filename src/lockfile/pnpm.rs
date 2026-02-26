@@ -96,15 +96,15 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
     for key in lockfile.packages.keys() {
         // Keys look like "react@18.2.0" or "@types/react@18.2.48"
         // Use rfind('@') to correctly handle scoped packages
-        if let Some(pos) = key.rfind('@') {
-            if pos > 0 {
-                let name = &key[..pos];
-                let version = &key[pos + 1..];
-                all_packages
-                    .entry(name.to_string())
-                    .or_default()
-                    .push(version.to_string());
-            }
+        if let Some(pos) = key.rfind('@')
+            && pos > 0
+        {
+            let name = &key[..pos];
+            let version = &key[pos + 1..];
+            all_packages
+                .entry(name.to_string())
+                .or_default()
+                .push(version.to_string());
         }
     }
 

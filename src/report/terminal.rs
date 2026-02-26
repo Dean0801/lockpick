@@ -96,10 +96,15 @@ fn print_vulns(result: &AnalysisResult, i18n: &I18n) {
 }
 
 fn print_size(result: &AnalysisResult, i18n: &I18n) {
-    let Some(ref size) = result.size else { return; };
-    if size.entries.is_empty() { return; }
+    let Some(ref size) = result.size else {
+        return;
+    };
+    if size.entries.is_empty() {
+        return;
+    }
 
-    println!("\n{} {} ({} {})",
+    println!(
+        "\n{} {} ({} {})",
         "📊".bold(),
         i18n.t("size_analysis").bold(),
         format_bytes(size.total_bytes),

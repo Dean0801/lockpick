@@ -24,8 +24,8 @@ pub struct NpmLockfile {
 
 /// Parse package-lock.json (v3) content into a DependencyGraph.
 pub fn parse(content: &str) -> Result<DependencyGraph, String> {
-    let lockfile: NpmLockfile =
-        serde_json::from_str(content).map_err(|e| format!("Failed to parse package-lock.json: {e}"))?;
+    let lockfile: NpmLockfile = serde_json::from_str(content)
+        .map_err(|e| format!("Failed to parse package-lock.json: {e}"))?;
 
     let mut deps = HashMap::new();
     let mut dev_deps = HashMap::new();

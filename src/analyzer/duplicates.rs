@@ -29,13 +29,16 @@ pub fn detect_duplicates(graph: &DependencyGraph) -> DuplicateReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::{DependencyGraph, LockfileType};
+    use std::collections::HashMap;
 
     #[test]
     fn test_detect_duplicates_found() {
         let mut all_packages = HashMap::new();
-        all_packages.insert("lodash".to_string(), vec!["4.17.20".to_string(), "4.17.21".to_string()]);
+        all_packages.insert(
+            "lodash".to_string(),
+            vec!["4.17.20".to_string(), "4.17.21".to_string()],
+        );
         all_packages.insert("react".to_string(), vec!["18.2.0".to_string()]);
 
         let graph = DependencyGraph {

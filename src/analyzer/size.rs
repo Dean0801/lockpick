@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::{DependencyGraph, SizeEntry, SizeReport};
+use std::path::Path;
 
 /// Analyze disk size of each dependency in node_modules
 pub fn analyze_size(project_path: &Path, graph: &DependencyGraph) -> SizeReport {
@@ -7,7 +7,9 @@ pub fn analyze_size(project_path: &Path, graph: &DependencyGraph) -> SizeReport 
     let mut entries = Vec::new();
 
     // Collect all package names from deps + dev_deps
-    let all_names: Vec<&String> = graph.dependencies.keys()
+    let all_names: Vec<&String> = graph
+        .dependencies
+        .keys()
         .chain(graph.dev_dependencies.keys())
         .collect();
 
@@ -54,9 +56,9 @@ fn dir_size(path: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{DependencyGraph, LockfileType, PackageInfo};
     use std::collections::HashMap;
     use std::fs;
-    use crate::{DependencyGraph, PackageInfo, LockfileType};
 
     #[test]
     fn test_analyze_size_with_packages() {
@@ -69,11 +71,14 @@ mod tests {
         fs::write(react_dir.join("package.json"), "b".repeat(500)).unwrap();
 
         let mut deps = HashMap::new();
-        deps.insert("react".to_string(), PackageInfo {
-            name: "react".to_string(),
-            version: "18.2.0".to_string(),
-            integrity: None,
-        });
+        deps.insert(
+            "react".to_string(),
+            PackageInfo {
+                name: "react".to_string(),
+                version: "18.2.0".to_string(),
+                integrity: None,
+            },
+        );
 
         let graph = DependencyGraph {
             dependencies: deps,
@@ -96,11 +101,14 @@ mod tests {
     fn test_analyze_size_missing_dir() {
         let tmp = std::env::temp_dir().join("lockpick_size_missing");
         let mut deps = HashMap::new();
-        deps.insert("nonexistent".to_string(), PackageInfo {
-            name: "nonexistent".to_string(),
-            version: "1.0.0".to_string(),
-            integrity: None,
-        });
+        deps.insert(
+            "nonexistent".to_string(),
+            PackageInfo {
+                name: "nonexistent".to_string(),
+                version: "1.0.0".to_string(),
+                integrity: None,
+            },
+        );
 
         let graph = DependencyGraph {
             dependencies: deps,
@@ -123,11 +131,14 @@ mod tests {
         fs::write(nm.join("index.d.ts"), "c".repeat(200)).unwrap();
 
         let mut dev_deps = HashMap::new();
-        dev_deps.insert("@types/react".to_string(), PackageInfo {
-            name: "@types/react".to_string(),
-            version: "18.2.48".to_string(),
-            integrity: None,
-        });
+        dev_deps.insert(
+            "@types/react".to_string(),
+            PackageInfo {
+                name: "@types/react".to_string(),
+                version: "18.2.48".to_string(),
+                integrity: None,
+            },
+        );
 
         let graph = DependencyGraph {
             dependencies: HashMap::new(),
