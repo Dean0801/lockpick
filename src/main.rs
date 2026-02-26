@@ -140,8 +140,11 @@ async fn main() {
         None
     };
 
+    // Duplicate detection
+    let duplicates = Some(lockpick::analyzer::duplicates::detect_duplicates(&graph));
+
     // Build result and report
-    let result = lockpick::AnalysisResult { unused, vulns, duplicates: None, size: None };
+    let result = lockpick::AnalysisResult { unused, vulns, duplicates, size: None };
 
     let reporter: Box<dyn Reporter> = match cli.format {
         OutputFormat::Terminal => Box::new(TerminalReporter),

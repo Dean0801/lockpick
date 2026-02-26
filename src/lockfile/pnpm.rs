@@ -91,11 +91,28 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
         );
     }
 
+    // Build all_packages from the packages section
+    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
+    for key in lockfile.packages.keys() {
+        // Keys look like "react@18.2.0" or "@types/react@18.2.48"
+        // Use rfind('@') to correctly handle scoped packages
+        if let Some(pos) = key.rfind('@') {
+            if pos > 0 {
+                let name = &key[..pos];
+                let version = &key[pos + 1..];
+                all_packages
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(version.to_string());
+            }
+        }
+    }
+
     Ok(DependencyGraph {
         dependencies: deps,
         dev_dependencies: dev_deps,
         lockfile_type: crate::LockfileType::Pnpm,
-        all_packages: HashMap::new(),
+        all_packages,
     })
 }
 

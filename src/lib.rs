@@ -1,3 +1,4 @@
+pub mod analyzer;
 pub mod audit;
 pub mod i18n;
 pub mod lockfile;
