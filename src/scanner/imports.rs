@@ -88,30 +88,44 @@ pub fn extract_imports_from_source(source: &str, path: &Path) -> HashSet<String>
 
     let mut packages = HashSet::new();
 
-    // Extract from static import/export declarations
     for stmt in &ret.program.body {
-        if let Some(source_val) = extract_module_source(stmt)
-            && let Some(pkg) = normalize_package_name(source_val)
-        {
-            packages.insert(pkg);
-        }
-
-        // CJS require() in variable declarations: const x = require('pkg')
-        if let Statement::VariableDeclaration(decl) = stmt {
-            for declarator in &decl.declarations {
-                if let Some(init) = &declarator.init {
-                    extract_from_expression(init, &mut packages);
-                }
-            }
-        }
-
-        // CJS require() as bare expression: require('pkg')
-        if let Statement::ExpressionStatement(expr_stmt) = stmt {
-            extract_from_expression(&expr_stmt.expression, &mut packages);
-        }
+        extract_from_statement(stmt, &mut packages);
     }
 
     packages
+}
+
+/// Extract imports from a single statement (used for top-level and function bodies)
+fn extract_from_statement<'a>(stmt: &'a Statement<'a>, packages: &mut HashSet<String>) {
+    // Static import/export declarations
+    if let Some(source_val) = extract_module_source(stmt)
+        && let Some(pkg) = normalize_package_name(source_val)
+    {
+        packages.insert(pkg);
+    }
+
+    // Variable declarations: const x = require('pkg') or const x = import('pkg')
+    if let Statement::VariableDeclaration(decl) = stmt {
+        for declarator in &decl.declarations {
+            if let Some(init) = &declarator.init {
+                extract_from_expression(init, packages);
+            }
+        }
+    }
+
+    // Bare expression statements: require('pkg') or import('pkg')
+    if let Statement::ExpressionStatement(expr_stmt) = stmt {
+        extract_from_expression(&expr_stmt.expression, packages);
+    }
+
+    // Function declarations: recurse into body
+    if let Statement::FunctionDeclaration(func) = stmt {
+        if let Some(body) = &func.body {
+            for inner_stmt in &body.statements {
+                extract_from_statement(inner_stmt, packages);
+            }
+        }
+    }
 }
 
 /// Extract module source string from import/export statements
@@ -124,20 +138,33 @@ fn extract_module_source<'a>(stmt: &'a Statement<'a>) -> Option<&'a str> {
     }
 }
 
-/// Extract package name from a require() call expression
+/// Extract package name from require() or dynamic import() expressions
 fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<String>) {
-    if let Expression::CallExpression(call) = expr {
-        if let Expression::Identifier(id) = &call.callee {
-            if id.name == "require" {
-                if let Some(first_arg) = call.arguments.first() {
-                    if let Argument::StringLiteral(lit) = first_arg {
-                        if let Some(pkg) = normalize_package_name(lit.value.as_str()) {
-                            packages.insert(pkg);
+    match expr {
+        Expression::CallExpression(call) => {
+            if let Expression::Identifier(id) = &call.callee {
+                if id.name == "require" {
+                    if let Some(first_arg) = call.arguments.first() {
+                        if let Argument::StringLiteral(lit) = first_arg {
+                            if let Some(pkg) = normalize_package_name(lit.value.as_str()) {
+                                packages.insert(pkg);
+                            }
                         }
                     }
                 }
             }
         }
+        Expression::ImportExpression(imp) => {
+            if let Expression::StringLiteral(lit) = &imp.source {
+                if let Some(pkg) = normalize_package_name(lit.value.as_str()) {
+                    packages.insert(pkg);
+                }
+            }
+        }
+        Expression::AwaitExpression(await_expr) => {
+            extract_from_expression(&await_expr.argument, packages);
+        }
+        _ => {}
     }
 }
 
@@ -234,6 +261,26 @@ mod tests {
     fn test_extract_cjs_require_destructured() {
         let source = r#"const { useState } = require('react');"#;
         let path = Path::new("test.js");
+        let imports = extract_imports_from_source(source, path);
+        assert!(imports.contains("react"));
+    }
+
+    #[test]
+    fn test_extract_dynamic_import() {
+        let source = r#"const mod = import('lodash');"#;
+        let path = Path::new("test.js");
+        let imports = extract_imports_from_source(source, path);
+        assert!(imports.contains("lodash"));
+    }
+
+    #[test]
+    fn test_extract_dynamic_import_in_function() {
+        let source = r#"
+            async function load() {
+                const { default: React } = await import('react');
+            }
+        "#;
+        let path = Path::new("test.ts");
         let imports = extract_imports_from_source(source, path);
         assert!(imports.contains("react"));
     }
