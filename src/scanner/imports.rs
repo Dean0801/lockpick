@@ -5,7 +5,7 @@ use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
-use oxc_ast::ast::Statement;
+use oxc_ast::ast::{Argument, Expression, Statement};
 
 /// Normalize an import source to a package name
 /// "@scope/pkg/utils" → "@scope/pkg"
@@ -95,6 +95,20 @@ pub fn extract_imports_from_source(source: &str, path: &Path) -> HashSet<String>
         {
             packages.insert(pkg);
         }
+
+        // CJS require() in variable declarations: const x = require('pkg')
+        if let Statement::VariableDeclaration(decl) = stmt {
+            for declarator in &decl.declarations {
+                if let Some(init) = &declarator.init {
+                    extract_from_expression(init, &mut packages);
+                }
+            }
+        }
+
+        // CJS require() as bare expression: require('pkg')
+        if let Statement::ExpressionStatement(expr_stmt) = stmt {
+            extract_from_expression(&expr_stmt.expression, &mut packages);
+        }
     }
 
     packages
@@ -107,6 +121,23 @@ fn extract_module_source<'a>(stmt: &'a Statement<'a>) -> Option<&'a str> {
         Statement::ExportNamedDeclaration(decl) => decl.source.as_ref().map(|s| s.value.as_str()),
         Statement::ExportAllDeclaration(decl) => Some(decl.source.value.as_str()),
         _ => None,
+    }
+}
+
+/// Extract package name from a require() call expression
+fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<String>) {
+    if let Expression::CallExpression(call) = expr {
+        if let Expression::Identifier(id) = &call.callee {
+            if id.name == "require" {
+                if let Some(first_arg) = call.arguments.first() {
+                    if let Argument::StringLiteral(lit) = first_arg {
+                        if let Some(pkg) = normalize_package_name(lit.value.as_str()) {
+                            packages.insert(pkg);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -181,5 +212,29 @@ mod tests {
         let path = Path::new("test.ts");
         let imports = extract_imports_from_source(source, path);
         assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn test_extract_cjs_require() {
+        let source = r#"const lodash = require('lodash');"#;
+        let path = Path::new("test.js");
+        let imports = extract_imports_from_source(source, path);
+        assert!(imports.contains("lodash"));
+    }
+
+    #[test]
+    fn test_extract_cjs_require_scoped() {
+        let source = r#"const render = require('@testing-library/react');"#;
+        let path = Path::new("test.js");
+        let imports = extract_imports_from_source(source, path);
+        assert!(imports.contains("@testing-library/react"));
+    }
+
+    #[test]
+    fn test_extract_cjs_require_destructured() {
+        let source = r#"const { useState } = require('react');"#;
+        let path = Path::new("test.js");
+        let imports = extract_imports_from_source(source, path);
+        assert!(imports.contains("react"));
     }
 }
