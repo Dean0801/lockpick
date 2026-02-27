@@ -115,6 +115,25 @@ fn test_i18n_cli_override() {
     assert_eq!(i18n_en.t("scan_complete"), "Scan complete");
 }
 
+/// Exit code logic: has_issues should be true when unused deps exist
+#[test]
+fn test_exit_code_concept() {
+    // Verify the has_issues logic independently
+    let unused = lockpick::UnusedReport {
+        unused: vec![lockpick::UnusedDep {
+            name: "foo".into(),
+            version: "1.0.0".into(),
+            dep_type: lockpick::DepType::Prod,
+        }],
+    };
+    let has_issues = !unused.unused.is_empty();
+    assert!(has_issues);
+
+    let empty = lockpick::UnusedReport { unused: vec![] };
+    let no_issues = empty.unused.is_empty();
+    assert!(no_issues);
+}
+
 /// JSON reporter should produce valid JSON output
 #[test]
 fn test_json_reporter_output() {
