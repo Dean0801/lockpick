@@ -11,10 +11,12 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 - **Scripts awareness** — Parses `package.json` scripts to detect CLI tools (e.g. `tsc` → `typescript`), supports chained commands (`&&`, `||`, `;`, `|`)
 - **Monorepo support** — Detects pnpm/npm/yarn workspaces and analyzes each package independently
 - **Project config (.lockpickrc)** — JSON/YAML config file for persistent ignore rules, language, and extra config paths
-- **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs across all your dependencies
+- **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs across all your dependencies, with local file cache for faster repeat scans
 - **Duplicate detection** — Finds packages with multiple versions installed in your lockfile
 - **Size analysis** — Measures the disk size of each dependency in `node_modules`
-- **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, package-lock.json, and yarn.lock
+- **License compliance** — Extracts license info from `node_modules`, normalizes SPDX aliases, supports allow/deny policy via `.lockpickrc`
+- **Auto-fix** — `lockpick fix` removes unused dependencies via your package manager (supports `--dry-run`)
+- **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, bun.lock, package-lock.json, and yarn.lock
 - **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions)
 - **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found
 - **Smart @types association** — `@types/react` won't be flagged as unused if `react` is imported
@@ -62,6 +64,15 @@ lockpick --no-dev
 
 # Ignore specific packages
 lockpick --ignore react --ignore lodash
+
+# Auto-remove unused dependencies
+lockpick fix
+
+# Dry run (preview what would be removed)
+lockpick fix --dry-run
+
+# Disable vulnerability cache
+lockpick audit --no-cache
 ```
 
 ## Supported Lockfiles
@@ -71,6 +82,7 @@ lockpick --ignore react --ignore lodash
 | pnpm-lock.yaml (v9) | ✅ Supported |
 | package-lock.json (v1/v2/v3) | ✅ Supported |
 | yarn.lock (v1) | ✅ Supported |
+| bun.lock | ✅ Supported |
 
 ## Configuration (.lockpickrc)
 
@@ -81,7 +93,12 @@ Create a `.lockpickrc.json` or `.lockpickrc.yaml` in your project root:
   "ignore": ["husky", "lint-staged"],
   "skip_dev": false,
   "lang": "zh",
-  "extra_configs": ["jest.config.ts"]
+  "extra_configs": ["jest.config.ts"],
+  "license": {
+    "allow": ["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"],
+    "deny": ["GPL-3.0"]
+  },
+  "cache_ttl": 7200
 }
 ```
 
@@ -90,7 +107,7 @@ CLI arguments override config file settings.
 ## How It Works
 
 1. Load `.lockpickrc` config (if present) and merge with CLI args
-2. Auto-detect and parse lockfile (pnpm-lock.yaml / package-lock.json / yarn.lock)
+2. Auto-detect and parse lockfile (pnpm-lock.yaml / package-lock.json / yarn.lock / bun.lock)
 3. Detect monorepo workspaces (pnpm/npm/yarn) — analyze each package independently
 4. Scan JS/TS source files using [oxc_parser](https://crates.io/crates/oxc_parser) to extract imports (`import`, `require()`, `import()`)
 5. Scan config files (ESLint, Vite, Babel, PostCSS, etc.) for plugin references
@@ -98,8 +115,9 @@ CLI arguments override config file settings.
 7. Compare declared dependencies vs actual usage to find unused packages
 8. Detect duplicate packages with multiple versions in the lockfile
 9. Measure dependency sizes in `node_modules`
-10. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities
-11. Output results as colored terminal tables or JSON
+10. Extract license info and check against allow/deny policy
+11. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities (with local file cache)
+12. Output results as colored terminal tables or JSON
 
 ## Environment Variables
 
