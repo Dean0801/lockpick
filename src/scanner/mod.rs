@@ -1,4 +1,5 @@
 pub mod imports;
+pub mod scripts;
 pub mod unused;
 
 use glob::glob;
