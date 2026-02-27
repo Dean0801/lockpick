@@ -39,6 +39,14 @@ struct Cli {
     /// Verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Dry run mode (for fix command)
+    #[arg(long, global = true)]
+    dry_run: bool,
+
+    /// Disable OSV cache
+    #[arg(long, global = true)]
+    no_cache: bool,
 }
 
 #[derive(Subcommand)]
@@ -49,6 +57,8 @@ enum Commands {
     Unused,
     /// Vulnerability scan only
     Audit,
+    /// Auto-remove unused dependencies
+    Fix,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -147,10 +157,11 @@ async fn main() -> ExitCode {
     let i18n = I18n::detect(lang_str);
 
     // Determine which analyses to run
-    let (run_unused, run_audit) = match &cli.command {
-        Some(Commands::Unused) => (true, false),
-        Some(Commands::Audit) => (false, true),
-        Some(Commands::Scan) | None => (true, true),
+    let (run_unused, run_audit, run_fix) = match &cli.command {
+        Some(Commands::Unused) => (true, false, false),
+        Some(Commands::Audit) => (false, true, false),
+        Some(Commands::Fix) => (true, false, true),
+        Some(Commands::Scan) | None => (true, true, false),
     };
 
     if cli.verbose {
@@ -229,6 +240,8 @@ async fn main() -> ExitCode {
                 run_unused,
                 run_duplicates: run_unused,
                 run_size: run_unused,
+                run_license: true,
+                license_policy: rc_config.license.as_ref(),
                 verbose: cli.verbose,
                 i18n: &i18n,
             };
@@ -255,7 +268,7 @@ async fn main() -> ExitCode {
 
         // Vulnerability scan at root level (shared lockfile)
         let vulns = if run_audit {
-            match lockpick::audit::osv::scan_vulnerabilities(&graph).await {
+            match lockpick::audit::osv::scan_vulnerabilities(&graph, rc_config.cache_ttl, cli.no_cache).await {
                 Ok(v) => Some(v),
                 Err(e) => {
                     eprintln!("{}: {e}", i18n.t("network_error"));
@@ -274,6 +287,7 @@ async fn main() -> ExitCode {
                 vulns: Some(v.clone()),
                 duplicates: None,
                 size: None,
+                license: None,
             };
             if let Err(e) = reporter.report(&vuln_result, &i18n) {
                 eprintln!("Report error: {e}");
@@ -296,6 +310,8 @@ async fn main() -> ExitCode {
         run_unused,
         run_duplicates: true,
         run_size: true,
+        run_license: true,
+        license_policy: rc_config.license.as_ref(),
         verbose: cli.verbose,
         i18n: &i18n,
     };
@@ -310,7 +326,7 @@ async fn main() -> ExitCode {
 
     // Vulnerability scan
     let vulns = if run_audit {
-        match lockpick::audit::osv::scan_vulnerabilities(&graph).await {
+        match lockpick::audit::osv::scan_vulnerabilities(&graph, rc_config.cache_ttl, cli.no_cache).await {
             Ok(v) => Some(v),
             Err(e) => {
                 eprintln!("{}: {e}", i18n.t("network_error"));
@@ -322,6 +338,51 @@ async fn main() -> ExitCode {
     };
 
     result.vulns = vulns;
+
+    // Fix mode: auto-remove unused dependencies
+    if run_fix {
+        if let Some(ref unused_report) = result.unused {
+            if unused_report.unused.is_empty() {
+                eprintln!("{}", i18n.t("fix_nothing"));
+                return ExitCode::SUCCESS;
+            }
+
+            if cli.dry_run {
+                eprintln!("{}", i18n.t("fix_dry_run"));
+                for dep in &unused_report.unused {
+                    eprintln!("  - {} ({})", dep.name, dep.version);
+                }
+                return ExitCode::SUCCESS;
+            }
+
+            match lockpick::fix::fix_unused(
+                &project_path,
+                &unused_report.unused,
+                &graph.lockfile_type,
+                false,
+            ) {
+                Ok(fix_result) => {
+                    for name in &fix_result.removed {
+                        eprintln!("{}: {}", i18n.t("fix_removing"), name);
+                    }
+                    for (name, err) in &fix_result.failed {
+                        eprintln!("{}: {} - {}", i18n.t("fix_failed"), name, err);
+                    }
+                    eprintln!("{}", i18n.t("fix_done"));
+                    if fix_result.failed.is_empty() {
+                        return ExitCode::SUCCESS;
+                    } else {
+                        return ExitCode::FAILURE;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        return ExitCode::SUCCESS;
+    }
 
     if let Err(e) = reporter.report(&result, &i18n) {
         eprintln!("Report error: {e}");

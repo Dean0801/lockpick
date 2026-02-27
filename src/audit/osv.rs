@@ -72,41 +72,68 @@ struct OsvEvent {
     fixed: Option<String>,
 }
 
+/// Default cache TTL: 1 hour
+const DEFAULT_CACHE_TTL: u64 = 3600;
+
 /// Scan dependencies for known vulnerabilities via OSV.dev API
-pub async fn scan_vulnerabilities(graph: &DependencyGraph) -> Result<Vec<VulnReport>, LockpickError> {
+pub async fn scan_vulnerabilities(
+    graph: &DependencyGraph,
+    cache_ttl: Option<u64>,
+    no_cache: bool,
+) -> Result<Vec<VulnReport>, LockpickError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| LockpickError::Network(format!("HTTP client error: {e}")))?;
 
-    // Build batch query from all deps
+    let use_cache = !no_cache;
+    let ttl = cache_ttl.unwrap_or(DEFAULT_CACHE_TTL);
+
+    // Collect all packages to scan
+    let all_pkgs: Vec<(String, String)> = graph
+        .dependencies
+        .iter()
+        .chain(graph.dev_dependencies.iter())
+        .map(|(name, info)| (name.clone(), info.version.clone()))
+        .collect();
+
+    if all_pkgs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Check cache per-package, separate into cached hits and uncached misses
+    let mut cached_reports: Vec<VulnReport> = Vec::new();
+    let mut uncached: Vec<(String, String)> = Vec::new();
+
+    for (name, version) in &all_pkgs {
+        if use_cache {
+            if let Some(vulns) = crate::cache::osv::get(name, version, ttl) {
+                if !vulns.is_empty() {
+                    cached_reports.push(VulnReport {
+                        package: name.clone(),
+                        version: version.clone(),
+                        vulns,
+                    });
+                }
+                continue;
+            }
+        }
+        uncached.push((name.clone(), version.clone()));
+    }
+
+    // Build batch queries only for uncached packages
     let mut queries = Vec::new();
     let mut pkg_order = Vec::new();
 
-    for (name, info) in &graph.dependencies {
+    for (name, version) in &uncached {
         queries.push(OsvQuery {
             package: OsvPackage {
                 name: name.clone(),
                 ecosystem: "npm".into(),
             },
-            version: info.version.clone(),
+            version: version.clone(),
         });
-        pkg_order.push((name.clone(), info.version.clone()));
-    }
-
-    for (name, info) in &graph.dev_dependencies {
-        queries.push(OsvQuery {
-            package: OsvPackage {
-                name: name.clone(),
-                ecosystem: "npm".into(),
-            },
-            version: info.version.clone(),
-        });
-        pkg_order.push((name.clone(), info.version.clone()));
-    }
-
-    if queries.is_empty() {
-        return Ok(Vec::new());
+        pkg_order.push((name.clone(), version.clone()));
     }
 
     // Send queries in batches to avoid API limits
@@ -138,23 +165,32 @@ pub async fn scan_vulnerabilities(graph: &DependencyGraph) -> Result<Vec<VulnRep
         all_results.extend(batch.results);
     }
 
-    // Map results back to packages
-    let mut reports = Vec::new();
+    // Map fresh results back to packages and write to cache
+    let mut fresh_reports: Vec<VulnReport> = Vec::new();
     for (i, entry) in all_results.iter().enumerate() {
-        if entry.vulns.is_empty() {
-            continue;
-        }
         let Some((name, version)) = pkg_order.get(i) else {
             continue;
         };
-        let vulns = entry.vulns.iter().map(convert_vuln).collect();
-        reports.push(VulnReport {
-            package: name.clone(),
-            version: version.clone(),
-            vulns,
-        });
+
+        let vulns: Vec<Vulnerability> = entry.vulns.iter().map(convert_vuln).collect();
+
+        // Write to cache (even empty results, so we don't re-query clean packages)
+        if use_cache {
+            let _ = crate::cache::osv::set(name, version, &vulns);
+        }
+
+        if !vulns.is_empty() {
+            fresh_reports.push(VulnReport {
+                package: name.clone(),
+                version: version.clone(),
+                vulns,
+            });
+        }
     }
 
+    // Merge cached + fresh results
+    let mut reports = cached_reports;
+    reports.extend(fresh_reports);
     Ok(reports)
 }
 

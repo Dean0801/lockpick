@@ -1,8 +1,10 @@
 pub mod analyze;
 pub mod analyzer;
 pub mod audit;
+pub mod cache;
 pub mod config;
 pub mod error;
+pub mod fix;
 pub mod i18n;
 pub mod lockfile;
 pub mod report;
@@ -18,6 +20,7 @@ pub enum LockfileType {
     Pnpm,
     Npm,
     Yarn,
+    Bun,
 }
 
 /// A duplicate dependency entry
@@ -46,6 +49,39 @@ pub struct SizeEntry {
 pub struct SizeReport {
     pub entries: Vec<SizeEntry>,
     pub total_bytes: u64,
+}
+
+/// License entry for a single package
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseEntry {
+    pub name: String,
+    pub version: String,
+    pub license: String,
+    pub dep_type: DepType,
+}
+
+/// Reason for license policy violation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ViolationReason {
+    Denied,
+    NotAllowed,
+    Unknown,
+}
+
+/// A single license violation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseViolation {
+    pub package: String,
+    pub version: String,
+    pub license: String,
+    pub reason: ViolationReason,
+}
+
+/// License analysis report
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LicenseReport {
+    pub entries: Vec<LicenseEntry>,
+    pub violations: Vec<LicenseViolation>,
 }
 
 /// Package metadata from lockfile
@@ -119,6 +155,7 @@ pub struct AnalysisResult {
     pub vulns: Option<Vec<VulnReport>>,
     pub duplicates: Option<DuplicateReport>,
     pub size: Option<SizeReport>,
+    pub license: Option<LicenseReport>,
 }
 
 #[cfg(test)]
@@ -157,6 +194,7 @@ mod tests {
             vulns: None,
             duplicates: None,
             size: None,
+            license: None,
         };
         assert!(result.duplicates.is_none());
         assert!(result.size.is_none());

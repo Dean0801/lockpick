@@ -1,3 +1,4 @@
+pub mod bun;
 pub mod npm;
 pub mod pnpm;
 pub mod yarn;
@@ -13,6 +14,7 @@ use crate::error::LockpickError;
 pub fn detect_and_parse(project_dir: &Path) -> Result<DependencyGraph, LockpickError> {
     let candidates = [
         ("pnpm-lock.yaml", "pnpm" as &str),
+        ("bun.lock", "bun"),
         ("package-lock.json", "npm"),
         ("yarn.lock", "yarn"),
     ];
@@ -24,6 +26,7 @@ pub fn detect_and_parse(project_dir: &Path) -> Result<DependencyGraph, LockpickE
                 .map_err(LockpickError::Io)?;
             return match *kind {
                 "pnpm" => pnpm::parse(&content),
+                "bun" => bun::parse(&content),
                 "npm" => npm::parse(&content),
                 "yarn" => {
                     let dev_names = read_dev_dep_names(project_dir);
@@ -34,7 +37,7 @@ pub fn detect_and_parse(project_dir: &Path) -> Result<DependencyGraph, LockpickE
         }
     }
 
-    Err(LockpickError::NoLockfile("No lockfile found (looked for pnpm-lock.yaml, package-lock.json, yarn.lock)".into()))
+    Err(LockpickError::NoLockfile("No lockfile found (looked for pnpm-lock.yaml, bun.lock, package-lock.json, yarn.lock)".into()))
 }
 
 /// Read devDependencies names from package.json for yarn dev detection
@@ -118,6 +121,30 @@ react@^18.2.0:
 
         let graph = detect_and_parse(dir.path()).unwrap();
         assert_eq!(graph.lockfile_type, LockfileType::Yarn);
+    }
+
+    #[test]
+    fn test_detect_bun() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let content = r#"{
+  "lockfileVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "test",
+      "dependencies": {
+        "react": "^18.2.0"
+      }
+    }
+  },
+  "packages": {
+    "react": ["react@18.2.0"]
+  }
+}"#;
+        fs::write(dir.path().join("bun.lock"), content).unwrap();
+
+        let graph = detect_and_parse(dir.path()).unwrap();
+        assert_eq!(graph.lockfile_type, LockfileType::Bun);
     }
 
     #[test]

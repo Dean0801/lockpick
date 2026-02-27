@@ -4,6 +4,7 @@ use std::path::Path;
 use crate::error::LockpickError;
 use crate::i18n::I18n;
 use crate::{AnalysisResult, DependencyGraph, UnusedReport};
+use crate::config::types::LicensePolicy;
 
 /// Options for analyzing a single package
 pub struct AnalyzeOptions<'a> {
@@ -15,6 +16,8 @@ pub struct AnalyzeOptions<'a> {
     pub run_unused: bool,
     pub run_duplicates: bool,
     pub run_size: bool,
+    pub run_license: bool,
+    pub license_policy: Option<&'a LicensePolicy>,
     pub verbose: bool,
     pub i18n: &'a I18n,
 }
@@ -42,11 +45,26 @@ pub fn analyze_package(opts: &AnalyzeOptions<'_>) -> Result<AnalysisResult, Lock
         None
     };
 
+    let license = if opts.run_license {
+        let mut report = crate::analyzer::license::extract_licenses(
+            opts.project_path,
+            opts.graph,
+            opts.skip_dev,
+        );
+        if let Some(policy) = opts.license_policy {
+            report.violations = crate::analyzer::license::check_policy(&report, policy);
+        }
+        Some(report)
+    } else {
+        None
+    };
+
     Ok(AnalysisResult {
         unused,
         vulns: None,
         duplicates,
         size,
+        license,
     })
 }
 

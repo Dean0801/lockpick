@@ -8,6 +8,17 @@ pub enum OutputFormatConfig {
     Json,
 }
 
+/// License policy configuration
+#[derive(Debug, Deserialize, Default, Clone, PartialEq)]
+pub struct LicensePolicy {
+    /// Allowlist: only these licenses are permitted (when non-empty)
+    #[serde(default)]
+    pub allow: Vec<String>,
+    /// Denylist: these licenses are forbidden
+    #[serde(default)]
+    pub deny: Vec<String>,
+}
+
 /// Project-level lockpick configuration (.lockpickrc.json / .lockpickrc.yaml)
 #[derive(Debug, Deserialize, Default, Clone, PartialEq)]
 pub struct LockpickConfig {
@@ -30,4 +41,12 @@ pub struct LockpickConfig {
     /// Extra config file paths to scan (e.g. ["jest.config.ts"])
     #[serde(default)]
     pub extra_configs: Vec<String>,
+
+    /// License policy (allow/deny lists)
+    #[serde(default)]
+    pub license: Option<LicensePolicy>,
+
+    /// OSV cache TTL in seconds (default: 86400 = 24h)
+    #[serde(default)]
+    pub cache_ttl: Option<u64>,
 }

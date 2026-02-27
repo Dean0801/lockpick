@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 use super::Reporter;
 use crate::error::LockpickError;
 use crate::i18n::I18n;
-use crate::{AnalysisResult, DepType, Severity};
+use crate::{AnalysisResult, DepType, Severity, ViolationReason};
 
 pub struct TerminalReporter;
 
@@ -14,6 +14,7 @@ impl Reporter for TerminalReporter {
         print_vulns(result, i18n);
         print_duplicates(result, i18n);
         print_size(result, i18n);
+        print_license(result, i18n);
         println!("\n{}", i18n.t("scan_complete").green());
         Ok(())
     }
@@ -152,6 +153,76 @@ fn print_size(result: &AnalysisResult, i18n: &I18n) {
         }
     }
     println!("{table}");
+}
+
+fn print_license(result: &AnalysisResult, i18n: &I18n) {
+    let Some(ref license) = result.license else {
+        return;
+    };
+
+    if license.entries.is_empty() {
+        return;
+    }
+
+    println!(
+        "\n{} {} ({} {})",
+        "📜".bold(),
+        i18n.t("license_report").bold(),
+        license.entries.len(),
+        i18n.t("found")
+    );
+
+    let mut table = Table::new();
+    table.set_content_arrangement(ContentArrangement::Dynamic);
+    table.set_header(vec![
+        i18n.t("package"),
+        i18n.t("version"),
+        i18n.t("license"),
+        i18n.t("type"),
+    ]);
+
+    for entry in &license.entries {
+        let dep_type = match entry.dep_type {
+            DepType::Prod => i18n.t("prod"),
+            DepType::Dev => i18n.t("dev"),
+        };
+        table.add_row(vec![&entry.name, &entry.version, &entry.license, dep_type]);
+    }
+
+    println!("{table}");
+
+    if license.violations.is_empty() {
+        println!("{}", i18n.t("no_license_violations").green());
+        return;
+    }
+
+    println!(
+        "\n{} {} ({} {})",
+        "⚠️".bold(),
+        i18n.t("license_violations").bold(),
+        license.violations.len(),
+        i18n.t("found")
+    );
+
+    let mut vtable = Table::new();
+    vtable.set_content_arrangement(ContentArrangement::Dynamic);
+    vtable.set_header(vec![
+        i18n.t("package"),
+        i18n.t("version"),
+        i18n.t("license"),
+        i18n.t("reason"),
+    ]);
+
+    for v in &license.violations {
+        let reason = match v.reason {
+            ViolationReason::Denied => i18n.t("violation_denied"),
+            ViolationReason::NotAllowed => i18n.t("violation_not_allowed"),
+            ViolationReason::Unknown => i18n.t("violation_unknown"),
+        };
+        vtable.add_row(vec![&v.package, &v.version, &v.license, reason]);
+    }
+
+    println!("{vtable}");
 }
 
 fn format_bytes(bytes: u64) -> String {

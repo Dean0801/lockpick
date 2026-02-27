@@ -148,6 +148,7 @@ fn test_json_reporter_output() {
         vulns: None,
         duplicates: None,
         size: None,
+        license: None,
     };
 
     let json = serde_json::to_string_pretty(&result).unwrap();
