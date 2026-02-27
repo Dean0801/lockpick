@@ -3,8 +3,8 @@ pub mod imports;
 pub mod scripts;
 pub mod unused;
 
-use glob::glob;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 use crate::error::LockpickError;
 
@@ -14,30 +14,34 @@ const SOURCE_EXTENSIONS: &[&str] = &["js", "ts", "jsx", "tsx", "mjs", "cjs", "mt
 /// Directories to exclude from scanning
 const EXCLUDE_DIRS: &[&str] = &["node_modules", "dist", "build", ".git", ".next", "coverage"];
 
-/// Discover all JS/TS source files in a project directory (single glob pass)
+/// Discover all JS/TS source files in a project directory using walkdir.
+/// Skips excluded directories (node_modules, dist, etc.) at entry time for performance.
 pub fn discover_source_files(root: &Path) -> Result<Vec<PathBuf>, LockpickError> {
-    let pattern = format!("{}/**/*", root.display());
-    let entries =
-        glob(&pattern).map_err(|e| LockpickError::Parse(format!("Invalid glob pattern: {e}")))?;
-
     let mut files = Vec::new();
-    for entry in entries {
-        let path = entry.map_err(|e| LockpickError::Parse(format!("Glob error: {e}")))?;
-        if let Some(ext) = path.extension().and_then(|e| e.to_str())
-            && SOURCE_EXTENSIONS.contains(&ext)
-            && !should_exclude(&path)
-        {
-            files.push(path);
+
+    let walker = WalkDir::new(root).into_iter().filter_entry(|entry| {
+        // Skip excluded directories before descending into them
+        if entry.file_type().is_dir() {
+            if let Some(name) = entry.file_name().to_str() {
+                return !EXCLUDE_DIRS.contains(&name);
+            }
+        }
+        true
+    });
+
+    for entry in walker {
+        let entry = entry.map_err(|e| LockpickError::Parse(format!("Walk error: {e}")))?;
+        if entry.file_type().is_file() {
+            let path = entry.into_path();
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if SOURCE_EXTENSIONS.contains(&ext) {
+                    files.push(path);
+                }
+            }
         }
     }
 
     Ok(files)
-}
-
-/// Check if a path should be excluded
-fn should_exclude(path: &Path) -> bool {
-    path.components()
-        .any(|c| EXCLUDE_DIRS.contains(&c.as_os_str().to_str().unwrap_or("")))
 }
 
 #[cfg(test)]

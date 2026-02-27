@@ -2,54 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::imports::extract_imports_from_source;
-
-/// Strip JSONC comments (// and /* */) before parsing
-fn strip_jsonc_comments(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-    let mut in_string = false;
-
-    while i < len {
-        if in_string {
-            if bytes[i] == b'\\' && i + 1 < len {
-                out.push(bytes[i] as char);
-                out.push(bytes[i + 1] as char);
-                i += 2;
-                continue;
-            }
-            if bytes[i] == b'"' {
-                in_string = false;
-            }
-            out.push(bytes[i] as char);
-            i += 1;
-        } else if bytes[i] == b'"' {
-            in_string = true;
-            out.push('"');
-            i += 1;
-        } else if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
-            // Line comment: skip until newline
-            i += 2;
-            while i < len && bytes[i] != b'\n' {
-                i += 1;
-            }
-        } else if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
-            // Block comment: skip until */
-            i += 2;
-            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            if i + 1 < len {
-                i += 2; // skip */
-            }
-        } else {
-            out.push(bytes[i] as char);
-            i += 1;
-        }
-    }
-    out
-}
+use crate::utils::strip_jsonc_comments;
 
 /// Known JS/TS config file patterns to scan in project root
 const JS_CONFIG_FILES: &[&str] = &[
@@ -204,7 +157,7 @@ pub fn extract_json_config_deps(project_root: &Path) -> HashSet<String> {
             };
             let json: serde_json::Value =
                 if filename.ends_with(".yml") || filename.ends_with(".yaml") {
-                    match serde_yaml::from_str(&content) {
+                    match serde_yml::from_str(&content) {
                         Ok(v) => v,
                         Err(_) => continue,
                     }

@@ -1,4 +1,6 @@
 pub mod analyze;
+pub mod runner;
+pub mod utils;
 pub mod analyzer;
 pub mod audit;
 pub mod cache;

@@ -45,9 +45,27 @@ pub struct PnpmResolution {
     pub integrity: Option<String>,
 }
 
+/// Build all_packages map from the packages section keys (e.g. "react@18.2.0")
+fn build_all_packages(packages: &HashMap<String, PnpmPackage>) -> HashMap<String, Vec<String>> {
+    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
+    for key in packages.keys() {
+        if let Some(pos) = key.rfind('@')
+            && pos > 0
+        {
+            let name = &key[..pos];
+            let version = &key[pos + 1..];
+            all_packages
+                .entry(name.to_string())
+                .or_default()
+                .push(version.to_string());
+        }
+    }
+    all_packages
+}
+
 /// Parse pnpm-lock.yaml content into DependencyGraph (merges all importers)
 pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
-    let lockfile: PnpmLockfile = serde_yaml::from_str(content)
+    let lockfile: PnpmLockfile = serde_yml::from_str(content)
         .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))?;
 
     if lockfile.importers.is_empty() {
@@ -65,21 +83,7 @@ pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
     }
 
     // Build all_packages from the packages section
-    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
-    for key in lockfile.packages.keys() {
-        // Keys look like "react@18.2.0" or "@types/react@18.2.48"
-        // Use rfind('@') to correctly handle scoped packages
-        if let Some(pos) = key.rfind('@')
-            && pos > 0
-        {
-            let name = &key[..pos];
-            let version = &key[pos + 1..];
-            all_packages
-                .entry(name.to_string())
-                .or_default()
-                .push(version.to_string());
-        }
-    }
+    let all_packages = build_all_packages(&lockfile.packages);
 
     Ok(DependencyGraph {
         dependencies: deps,
@@ -125,7 +129,7 @@ pub fn parse_for_workspace(
     content: &str,
     importer_key: &str,
 ) -> Result<DependencyGraph, LockpickError> {
-    let lockfile: PnpmLockfile = serde_yaml::from_str(content)
+    let lockfile: PnpmLockfile = serde_yml::from_str(content)
         .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))?;
 
     let importer = lockfile.importers.get(importer_key).ok_or_else(|| {
@@ -136,19 +140,7 @@ pub fn parse_for_workspace(
     let mut dev_deps = HashMap::new();
     collect_importer_deps(importer, &lockfile.packages, &mut deps, &mut dev_deps);
 
-    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
-    for key in lockfile.packages.keys() {
-        if let Some(pos) = key.rfind('@')
-            && pos > 0
-        {
-            let name = &key[..pos];
-            let version = &key[pos + 1..];
-            all_packages
-                .entry(name.to_string())
-                .or_default()
-                .push(version.to_string());
-        }
-    }
+    let all_packages = build_all_packages(&lockfile.packages);
 
     Ok(DependencyGraph {
         dependencies: deps,

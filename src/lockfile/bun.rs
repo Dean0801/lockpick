@@ -1,65 +1,8 @@
 use std::collections::HashMap;
 
 use crate::error::LockpickError;
+use crate::utils::strip_jsonc_comments;
 use crate::{DependencyGraph, LockfileType, PackageInfo};
-
-/// Strip JSONC comments (// and /* */) from input, preserving string contents.
-pub fn strip_jsonc_comments(input: &str) -> String {
-    let mut result = String::with_capacity(input.len());
-    let chars: Vec<char> = input.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-    let mut in_string = false;
-
-    while i < len {
-        if in_string {
-            if chars[i] == '\\' && i + 1 < len {
-                result.push(chars[i]);
-                result.push(chars[i + 1]);
-                i += 2;
-            } else if chars[i] == '"' {
-                result.push('"');
-                in_string = false;
-                i += 1;
-            } else {
-                result.push(chars[i]);
-                i += 1;
-            }
-        } else if chars[i] == '"' {
-            result.push('"');
-            in_string = true;
-            i += 1;
-        } else if i + 1 < len && chars[i] == '/' && chars[i + 1] == '/' {
-            while i < len && chars[i] != '\n' {
-                result.push(' ');
-                i += 1;
-            }
-        } else if i + 1 < len && chars[i] == '/' && chars[i + 1] == '*' {
-            result.push(' ');
-            result.push(' ');
-            i += 2;
-            while i < len {
-                if i + 1 < len && chars[i] == '*' && chars[i + 1] == '/' {
-                    result.push(' ');
-                    result.push(' ');
-                    i += 2;
-                    break;
-                }
-                if chars[i] == '\n' {
-                    result.push('\n');
-                } else {
-                    result.push(' ');
-                }
-                i += 1;
-            }
-        } else {
-            result.push(chars[i]);
-            i += 1;
-        }
-    }
-
-    result
-}
 
 /// Parse the `name@version` format used in bun.lock package entries.
 /// Handles scoped packages like `@scope/pkg@1.0.0`.

@@ -30,7 +30,7 @@ fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, LockpickError
     // Try pnpm-workspace.yaml first
     let pnpm_path = project_root.join("pnpm-workspace.yaml");
     if let Ok(content) = fs::read_to_string(&pnpm_path) {
-        let yaml: Value = serde_yaml::from_str(&content)
+        let yaml: Value = serde_yml::from_str(&content)
             .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-workspace.yaml: {e}")))?;
         if let Some(packages) = yaml.get("packages").and_then(|v| v.as_array()) {
             let globs = packages

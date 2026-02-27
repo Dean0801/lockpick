@@ -24,7 +24,6 @@ pub fn fix_unused(
     project_path: &Path,
     unused: &[UnusedDep],
     lockfile_type: &LockfileType,
-    dry_run: bool,
 ) -> Result<FixResult, LockpickError> {
     if unused.is_empty() {
         return Ok(FixResult {
@@ -33,40 +32,34 @@ pub fn fix_unused(
         });
     }
 
-    if dry_run {
-        return Ok(FixResult {
-            removed: unused.iter().map(|d| d.name.clone()).collect(),
-            failed: vec![],
-        });
-    }
-
     let (binary, subcommand) = get_pm_command(lockfile_type);
-    let mut removed = Vec::new();
-    let mut failed = Vec::new();
+    let names: Vec<&str> = unused.iter().map(|d| d.name.as_str()).collect();
 
-    for dep in unused {
-        let output = Command::new(binary)
-            .arg(subcommand)
-            .arg(&dep.name)
-            .current_dir(project_path)
-            .output()
-            .map_err(LockpickError::Io)?;
+    // Batch remove: pnpm remove pkg1 pkg2 pkg3
+    let output = Command::new(binary)
+        .arg(subcommand)
+        .args(&names)
+        .current_dir(project_path)
+        .output()
+        .map_err(LockpickError::Io)?;
 
-        if output.status.success() {
-            removed.push(dep.name.clone());
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            failed.push((dep.name.clone(), stderr));
-        }
+    if output.status.success() {
+        Ok(FixResult {
+            removed: names.iter().map(|n| n.to_string()).collect(),
+            failed: vec![],
+        })
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        Ok(FixResult {
+            removed: vec![],
+            failed: names.iter().map(|n| (n.to_string(), stderr.clone())).collect(),
+        })
     }
-
-    Ok(FixResult { removed, failed })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DepType;
 
     #[test]
     fn test_get_pm_command_pnpm() {
@@ -98,19 +91,16 @@ mod tests {
 
     #[test]
     fn test_fix_empty_unused() {
-        let result = fix_unused(Path::new("."), &[], &LockfileType::Npm, false).unwrap();
+        let result = fix_unused(Path::new("."), &[], &LockfileType::Npm).unwrap();
         assert!(result.removed.is_empty());
         assert!(result.failed.is_empty());
     }
 
     #[test]
     fn test_fix_dry_run() {
-        let unused = vec![
-            UnusedDep { name: "lodash".into(), version: "4.17.21".into(), dep_type: DepType::Prod },
-            UnusedDep { name: "chalk".into(), version: "5.0.0".into(), dep_type: DepType::Dev },
-        ];
-        let result = fix_unused(Path::new("."), &unused, &LockfileType::Pnpm, true).unwrap();
-        assert_eq!(result.removed, vec!["lodash", "chalk"]);
-        assert!(result.failed.is_empty());
+        // dry_run is now handled in main.rs before calling fix_unused
+        // This test verifies fix_unused returns empty for empty input
+        let result = fix_unused(Path::new("."), &[], &LockfileType::Pnpm).unwrap();
+        assert!(result.removed.is_empty());
     }
 }

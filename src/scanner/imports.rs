@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
@@ -42,53 +43,21 @@ pub fn normalize_package_name(source: &str) -> Option<String> {
     Some(name.to_string())
 }
 
+static NODE_BUILTINS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
+        "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
+        "events", "fs", "http", "http2", "https", "inspector", "module", "net",
+        "os", "path", "perf_hooks", "process", "punycode", "querystring",
+        "readline", "repl", "stream", "string_decoder", "sys", "timers", "tls",
+        "trace_events", "tty", "url", "util", "v8", "vm", "wasi",
+        "worker_threads", "zlib",
+    ])
+});
+
 fn is_node_builtin(name: &str) -> bool {
-    const BUILTINS: &[&str] = &[
-        "assert",
-        "async_hooks",
-        "buffer",
-        "child_process",
-        "cluster",
-        "console",
-        "constants",
-        "crypto",
-        "dgram",
-        "diagnostics_channel",
-        "dns",
-        "domain",
-        "events",
-        "fs",
-        "http",
-        "http2",
-        "https",
-        "inspector",
-        "module",
-        "net",
-        "os",
-        "path",
-        "perf_hooks",
-        "process",
-        "punycode",
-        "querystring",
-        "readline",
-        "repl",
-        "stream",
-        "string_decoder",
-        "sys",
-        "timers",
-        "tls",
-        "trace_events",
-        "tty",
-        "url",
-        "util",
-        "v8",
-        "vm",
-        "wasi",
-        "worker_threads",
-        "zlib",
-    ];
     let base = name.split('/').next().unwrap_or(name);
-    BUILTINS.contains(&base)
+    NODE_BUILTINS.contains(base)
 }
 
 /// Extract all imported package names from a single source file

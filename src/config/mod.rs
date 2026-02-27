@@ -22,7 +22,7 @@ pub fn load_config(project_root: &Path) -> Result<LockpickConfig, LockpickError>
     if yaml_path.exists() {
         let content = std::fs::read_to_string(&yaml_path)
             .map_err(LockpickError::Io)?;
-        let config = serde_yaml::from_str::<LockpickConfig>(&content)
+        let config = serde_yml::from_str::<LockpickConfig>(&content)
             .map_err(|e| LockpickError::Config(format!("Invalid .lockpickrc.yaml: {e}")))?;
         return Ok(config);
     }
