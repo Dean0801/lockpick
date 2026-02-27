@@ -1,3 +1,4 @@
+pub mod config;
 pub mod imports;
 pub mod scripts;
 pub mod unused;
