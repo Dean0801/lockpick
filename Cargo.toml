@@ -1,6 +1,6 @@
 [package]
 name = "lockpick"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "A blazing-fast JS/TS dependency analyzer CLI built with Rust"
 license = "MIT"
@@ -22,8 +22,8 @@ oxc_ast = "0.115"
 owo-colors = "4"
 comfy-table = "7"
 indicatif = "0.17"
-miette = { version = "7", features = ["fancy"] }
 glob = "0.3"
+thiserror = "2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use crate::error::LockpickError;
 use crate::{DependencyGraph, PackageInfo};
 
 /// Top-level pnpm-lock.yaml v9 structure
@@ -44,51 +45,23 @@ pub struct PnpmResolution {
     pub integrity: Option<String>,
 }
 
-/// Parse pnpm-lock.yaml content into DependencyGraph
-pub fn parse(content: &str) -> Result<DependencyGraph, String> {
+/// Parse pnpm-lock.yaml content into DependencyGraph (merges all importers)
+pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
     let lockfile: PnpmLockfile = serde_yaml::from_str(content)
-        .map_err(|e| format!("Failed to parse pnpm-lock.yaml: {e}"))?;
+        .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))?;
 
-    let importer = lockfile
-        .importers
-        .get(".")
-        .ok_or("No root importer found in pnpm-lock.yaml")?;
+    if lockfile.importers.is_empty() {
+        return Err(LockpickError::Parse(
+            "No importers found in pnpm-lock.yaml".into(),
+        ));
+    }
 
     let mut deps = HashMap::new();
     let mut dev_deps = HashMap::new();
 
-    for (name, entry) in &importer.dependencies {
-        let pkg_key = format!("{name}@{}", entry.version);
-        let integrity = lockfile
-            .packages
-            .get(&pkg_key)
-            .and_then(|p| p.resolution.integrity.clone());
-
-        deps.insert(
-            name.clone(),
-            PackageInfo {
-                name: name.clone(),
-                version: entry.version.clone(),
-                integrity,
-            },
-        );
-    }
-
-    for (name, entry) in &importer.dev_dependencies {
-        let pkg_key = format!("{name}@{}", entry.version);
-        let integrity = lockfile
-            .packages
-            .get(&pkg_key)
-            .and_then(|p| p.resolution.integrity.clone());
-
-        dev_deps.insert(
-            name.clone(),
-            PackageInfo {
-                name: name.clone(),
-                version: entry.version.clone(),
-                integrity,
-            },
-        );
+    // Merge all importers for root-level analysis
+    for importer in lockfile.importers.values() {
+        collect_importer_deps(importer, &lockfile.packages, &mut deps, &mut dev_deps);
     }
 
     // Build all_packages from the packages section
@@ -96,6 +69,75 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
     for key in lockfile.packages.keys() {
         // Keys look like "react@18.2.0" or "@types/react@18.2.48"
         // Use rfind('@') to correctly handle scoped packages
+        if let Some(pos) = key.rfind('@')
+            && pos > 0
+        {
+            let name = &key[..pos];
+            let version = &key[pos + 1..];
+            all_packages
+                .entry(name.to_string())
+                .or_default()
+                .push(version.to_string());
+        }
+    }
+
+    Ok(DependencyGraph {
+        dependencies: deps,
+        dev_dependencies: dev_deps,
+        lockfile_type: crate::LockfileType::Pnpm,
+        all_packages,
+    })
+}
+
+/// Collect deps from a single importer into the provided maps
+fn collect_importer_deps(
+    importer: &PnpmImporter,
+    packages: &HashMap<String, PnpmPackage>,
+    deps: &mut HashMap<String, PackageInfo>,
+    dev_deps: &mut HashMap<String, PackageInfo>,
+) {
+    for (name, entry) in &importer.dependencies {
+        let pkg_key = format!("{name}@{}", entry.version);
+        let integrity = packages
+            .get(&pkg_key)
+            .and_then(|p| p.resolution.integrity.clone());
+        deps.entry(name.clone()).or_insert(PackageInfo {
+            name: name.clone(),
+            version: entry.version.clone(),
+            integrity,
+        });
+    }
+    for (name, entry) in &importer.dev_dependencies {
+        let pkg_key = format!("{name}@{}", entry.version);
+        let integrity = packages
+            .get(&pkg_key)
+            .and_then(|p| p.resolution.integrity.clone());
+        dev_deps.entry(name.clone()).or_insert(PackageInfo {
+            name: name.clone(),
+            version: entry.version.clone(),
+            integrity,
+        });
+    }
+}
+
+/// Parse pnpm-lock.yaml for a specific workspace importer key
+pub fn parse_for_workspace(
+    content: &str,
+    importer_key: &str,
+) -> Result<DependencyGraph, LockpickError> {
+    let lockfile: PnpmLockfile = serde_yaml::from_str(content)
+        .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))?;
+
+    let importer = lockfile.importers.get(importer_key).ok_or_else(|| {
+        LockpickError::Parse(format!("Importer '{importer_key}' not found in pnpm-lock.yaml"))
+    })?;
+
+    let mut deps = HashMap::new();
+    let mut dev_deps = HashMap::new();
+    collect_importer_deps(importer, &lockfile.packages, &mut deps, &mut dev_deps);
+
+    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
+    for key in lockfile.packages.keys() {
         if let Some(pos) = key.rfind('@')
             && pos > 0
         {

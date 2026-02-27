@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use glob::glob;
 use serde_json::Value;
 
+use crate::error::LockpickError;
+
 /// Checks if the given project root is a monorepo with workspace configuration.
 ///
 /// Returns true if pnpm-workspace.yaml exists OR package.json has a "workspaces" field.
@@ -24,12 +26,12 @@ pub fn is_monorepo(project_root: &Path) -> bool {
 }
 
 /// Extracts workspace glob patterns from pnpm-workspace.yaml or package.json.
-fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, String> {
+fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, LockpickError> {
     // Try pnpm-workspace.yaml first
     let pnpm_path = project_root.join("pnpm-workspace.yaml");
     if let Ok(content) = fs::read_to_string(&pnpm_path) {
         let yaml: Value = serde_yaml::from_str(&content)
-            .map_err(|e| format!("Failed to parse pnpm-workspace.yaml: {e}"))?;
+            .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-workspace.yaml: {e}")))?;
         if let Some(packages) = yaml.get("packages").and_then(|v| v.as_array()) {
             let globs = packages
                 .iter()
@@ -43,7 +45,7 @@ fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, String> {
     let pkg_path = project_root.join("package.json");
     if let Ok(content) = fs::read_to_string(&pkg_path) {
         let json: Value = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse package.json: {e}"))?;
+            .map_err(|e| LockpickError::Parse(format!("Failed to parse package.json: {e}")))?;
 
         if let Some(workspaces) = json.get("workspaces") {
             // Array format: "workspaces": ["packages/*"]
@@ -65,14 +67,14 @@ fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, String> {
         }
     }
 
-    Err("No workspace configuration found".to_string())
+    Err(LockpickError::Config("No workspace configuration found".into()))
 }
 
 /// Expands workspace glob patterns to find all workspace package directories.
 ///
 /// For each glob pattern, appends `/package.json` and uses `glob::glob()` to find matches.
 /// Returns the parent directories of found package.json files, sorted and deduplicated.
-pub fn detect_workspaces(project_root: &Path) -> Result<Vec<PathBuf>, String> {
+pub fn detect_workspaces(project_root: &Path) -> Result<Vec<PathBuf>, LockpickError> {
     let globs = get_workspace_globs(project_root)?;
     let mut dirs = BTreeSet::new();
 
@@ -81,7 +83,7 @@ pub fn detect_workspaces(project_root: &Path) -> Result<Vec<PathBuf>, String> {
         let pattern_str = full_pattern.to_string_lossy().to_string();
 
         let entries =
-            glob(&pattern_str).map_err(|e| format!("Invalid glob pattern '{pattern}': {e}"))?;
+            glob(&pattern_str).map_err(|e| LockpickError::Parse(format!("Invalid glob pattern '{pattern}': {e}")))?;
 
         for entry in entries.flatten() {
             if let Some(parent) = entry.parent() {

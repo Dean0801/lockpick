@@ -1,6 +1,10 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
+use clap::{Parser, Subcommand, ValueEnum};
+
+use lockpick::analyze::{AnalyzeOptions, analyze_package};
 use lockpick::config::load_config;
 use lockpick::i18n::I18n;
 use lockpick::report::{Reporter, json::JsonReporter, terminal::TerminalReporter};
@@ -16,9 +20,9 @@ struct Cli {
     #[arg(short, long, global = true)]
     path: Option<PathBuf>,
 
-    /// Output format
-    #[arg(short, long, global = true, default_value = "terminal")]
-    format: OutputFormat,
+    /// Output format (defaults to terminal; overridden by .lockpickrc if not specified)
+    #[arg(short, long, global = true)]
+    format: Option<OutputFormat>,
 
     /// Language (auto-detect if not specified)
     #[arg(short, long, global = true)]
@@ -103,21 +107,31 @@ fn read_package_deps(
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     let cli = Cli::parse();
 
     // Load .lockpickrc config
     let project_path = cli.path.clone().unwrap_or_else(|| PathBuf::from("."));
-    let rc_config = load_config(&project_path);
+
+    if !project_path.exists() {
+        eprintln!("Error: path '{}' does not exist", project_path.display());
+        return ExitCode::FAILURE;
+    }
+
+    let rc_config = match load_config(&project_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     // Merge: CLI args override .lockpickrc
     let effective_no_dev = cli.no_dev || rc_config.skip_dev;
 
-    let effective_ignore: Vec<String> = {
-        let mut merged = rc_config.ignore.clone();
-        merged.extend(cli.ignore.clone());
-        merged.sort();
-        merged.dedup();
+    let effective_ignore: HashSet<String> = {
+        let mut merged: HashSet<String> = rc_config.ignore.iter().cloned().collect();
+        merged.extend(cli.ignore.iter().cloned());
         merged
     };
 
@@ -131,11 +145,6 @@ async fn main() {
         })
         .or(rc_config.lang.as_deref());
     let i18n = I18n::detect(lang_str);
-
-    if !project_path.exists() {
-        eprintln!("Error: path '{}' does not exist", project_path.display());
-        std::process::exit(1);
-    }
 
     // Determine which analyses to run
     let (run_unused, run_audit) = match &cli.command {
@@ -153,12 +162,16 @@ async fn main() {
         Ok(g) => g,
         Err(e) => {
             eprintln!("Error: {e}");
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
     };
 
-    // Create reporter early (needed for both monorepo and single-package flows)
-    let reporter: Box<dyn Reporter> = match cli.format {
+    // Create reporter: CLI > .lockpickrc > default(terminal)
+    let effective_format = cli.format.unwrap_or(match rc_config.format {
+        Some(lockpick::config::types::OutputFormatConfig::Json) => OutputFormat::Json,
+        _ => OutputFormat::Terminal,
+    });
+    let reporter: Box<dyn Reporter> = match effective_format {
         OutputFormat::Terminal => Box::new(TerminalReporter),
         OutputFormat::Json => Box::new(JsonReporter),
     };
@@ -169,7 +182,7 @@ async fn main() {
             Ok(pkgs) => pkgs,
             Err(e) => {
                 eprintln!("Error detecting workspaces: {e}");
-                std::process::exit(1);
+                return ExitCode::FAILURE;
             }
         };
 
@@ -207,52 +220,35 @@ async fn main() {
                 all_packages: graph.all_packages.clone(),
             };
 
-            if run_unused {
-                let files = match lockpick::scanner::discover_source_files(pkg_dir) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        eprintln!("  Error scanning {pkg_name}: {e}");
-                        continue;
-                    }
-                };
+            let opts = AnalyzeOptions {
+                project_path: pkg_dir,
+                graph: &pkg_graph,
+                skip_dev: effective_no_dev,
+                ignore: &effective_ignore,
+                extra_configs: &rc_config.extra_configs,
+                run_unused,
+                run_duplicates: run_unused,
+                run_size: run_unused,
+                verbose: cli.verbose,
+                i18n: &i18n,
+            };
 
-                let mut used = std::collections::HashSet::new();
-                for file in &files {
-                    if let Ok(source) = std::fs::read_to_string(file) {
-                        let imports =
-                            lockpick::scanner::imports::extract_imports_from_source(&source, file);
-                        used.extend(imports);
-                    }
-                }
-
-                let config_deps = lockpick::scanner::config::extract_config_deps(pkg_dir);
-                used.extend(config_deps);
-
-                let script_deps = lockpick::scanner::scripts::extract_script_deps(pkg_dir);
-                used.extend(script_deps);
-
-                let mut report =
-                    lockpick::scanner::unused::detect_unused(&pkg_graph, &used, effective_no_dev);
-
-                if !effective_ignore.is_empty() {
-                    report
+            match analyze_package(&opts) {
+                Ok(pkg_result) => {
+                    if pkg_result
                         .unused
-                        .retain(|dep| !effective_ignore.contains(&dep.name));
+                        .as_ref()
+                        .is_some_and(|u| !u.unused.is_empty())
+                    {
+                        all_has_unused = true;
+                    }
+                    if let Err(e) = reporter.report(&pkg_result, &i18n) {
+                        eprintln!("Report error: {e}");
+                    }
                 }
-
-                if !report.unused.is_empty() {
-                    all_has_unused = true;
-                }
-
-                let pkg_result = lockpick::AnalysisResult {
-                    unused: Some(report),
-                    vulns: None,
-                    duplicates: None,
-                    size: None,
-                };
-
-                if let Err(e) = reporter.report(&pkg_result, &i18n) {
-                    eprintln!("Report error: {e}");
+                Err(e) => {
+                    eprintln!("  Error analyzing {pkg_name}: {e}");
+                    continue;
                 }
             }
         }
@@ -285,63 +281,31 @@ async fn main() {
         }
 
         if all_has_unused || has_vulns {
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
-        return;
+        return ExitCode::SUCCESS;
     }
 
-    // --- Single package flow continues below (existing code) ---
+    // --- Single package flow ---
+    let opts = AnalyzeOptions {
+        project_path: &project_path,
+        graph: &graph,
+        skip_dev: effective_no_dev,
+        ignore: &effective_ignore,
+        extra_configs: &rc_config.extra_configs,
+        run_unused,
+        run_duplicates: true,
+        run_size: true,
+        verbose: cli.verbose,
+        i18n: &i18n,
+    };
 
-    // Unused detection
-    let unused = if run_unused {
-        let files = match lockpick::scanner::discover_source_files(&project_path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
-            }
-        };
-
-        let mut used = std::collections::HashSet::new();
-        for file in &files {
-            if let Ok(source) = std::fs::read_to_string(file) {
-                let imports =
-                    lockpick::scanner::imports::extract_imports_from_source(&source, file);
-                used.extend(imports);
-            }
+    let mut result = match analyze_package(&opts) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            return ExitCode::FAILURE;
         }
-
-        // Scan config files for plugin references
-        let config_deps = lockpick::scanner::config::extract_config_deps(&project_path);
-        used.extend(config_deps);
-
-        // Scan extra config files from .lockpickrc
-        let extra_deps = lockpick::scanner::config::extract_extra_config_deps(
-            &project_path,
-            &rc_config.extra_configs,
-        );
-        used.extend(extra_deps);
-
-        // Scan package.json scripts for CLI tool references
-        let script_deps = lockpick::scanner::scripts::extract_script_deps(&project_path);
-        used.extend(script_deps);
-
-        if cli.verbose {
-            eprintln!("{}", i18n.t("scan_config_complete"));
-        }
-
-        let mut report = lockpick::scanner::unused::detect_unused(&graph, &used, effective_no_dev);
-
-        // Apply --ignore filter
-        if !effective_ignore.is_empty() {
-            report
-                .unused
-                .retain(|dep| !effective_ignore.contains(&dep.name));
-        }
-
-        Some(report)
-    } else {
-        None
     };
 
     // Vulnerability scan
@@ -357,26 +321,11 @@ async fn main() {
         None
     };
 
-    // Duplicate detection
-    let duplicates = Some(lockpick::analyzer::duplicates::detect_duplicates(&graph));
-
-    // Build result and report
-    // Size analysis
-    let size = Some(lockpick::analyzer::size::analyze_size(
-        &project_path,
-        &graph,
-    ));
-
-    let result = lockpick::AnalysisResult {
-        unused,
-        vulns,
-        duplicates,
-        size,
-    };
+    result.vulns = vulns;
 
     if let Err(e) = reporter.report(&result, &i18n) {
         eprintln!("Report error: {e}");
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     }
 
     // Determine exit code for CI
@@ -384,6 +333,8 @@ async fn main() {
     let has_vulns = result.vulns.as_ref().is_some_and(|v| !v.is_empty());
 
     if has_unused || has_vulns {
-        std::process::exit(1);
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
 }

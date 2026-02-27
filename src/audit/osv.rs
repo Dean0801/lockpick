@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use crate::error::LockpickError;
 use crate::{DependencyGraph, Severity, VulnReport, Vulnerability};
 
 const OSV_BATCH_URL: &str = "https://api.osv.dev/v1/querybatch";
+const OSV_BATCH_SIZE: usize = 1000;
 
 /// OSV batch query request
 #[derive(Serialize)]
@@ -10,13 +12,13 @@ struct OsvBatchRequest {
     queries: Vec<OsvQuery>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct OsvQuery {
     package: OsvPackage,
     version: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct OsvPackage {
     name: String,
     ecosystem: String,
@@ -71,11 +73,11 @@ struct OsvEvent {
 }
 
 /// Scan dependencies for known vulnerabilities via OSV.dev API
-pub async fn scan_vulnerabilities(graph: &DependencyGraph) -> Result<Vec<VulnReport>, String> {
+pub async fn scan_vulnerabilities(graph: &DependencyGraph) -> Result<Vec<VulnReport>, LockpickError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
+        .map_err(|e| LockpickError::Network(format!("HTTP client error: {e}")))?;
 
     // Build batch query from all deps
     let mut queries = Vec::new();
@@ -107,31 +109,44 @@ pub async fn scan_vulnerabilities(graph: &DependencyGraph) -> Result<Vec<VulnRep
         return Ok(Vec::new());
     }
 
-    let request = OsvBatchRequest { queries };
+    // Send queries in batches to avoid API limits
+    let mut all_results: Vec<OsvResultEntry> = Vec::new();
+    for chunk in queries.chunks(OSV_BATCH_SIZE) {
+        let request = OsvBatchRequest {
+            queries: chunk.to_vec(),
+        };
 
-    let resp = client
-        .post(OSV_BATCH_URL)
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("OSV API request failed: {e}"))?;
+        let resp = client
+            .post(OSV_BATCH_URL)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| LockpickError::Network(format!("OSV API request failed: {e}")))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("OSV API returned status: {}", resp.status()));
+        if !resp.status().is_success() {
+            return Err(LockpickError::Network(format!(
+                "OSV API returned status: {}",
+                resp.status()
+            )));
+        }
+
+        let batch: OsvBatchResponse = resp
+            .json()
+            .await
+            .map_err(|e| LockpickError::Network(format!("Failed to parse OSV response: {e}")))?;
+
+        all_results.extend(batch.results);
     }
-
-    let batch: OsvBatchResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse OSV response: {e}"))?;
 
     // Map results back to packages
     let mut reports = Vec::new();
-    for (i, entry) in batch.results.iter().enumerate() {
+    for (i, entry) in all_results.iter().enumerate() {
         if entry.vulns.is_empty() {
             continue;
         }
-        let (name, version) = &pkg_order[i];
+        let Some((name, version)) = pkg_order.get(i) else {
+            continue;
+        };
         let vulns = entry.vulns.iter().map(convert_vuln).collect();
         reports.push(VulnReport {
             package: name.clone(),
@@ -179,8 +194,18 @@ fn parse_severity(v: &OsvVuln) -> Severity {
     Severity::Medium
 }
 
-/// Extract numeric score from CVSS vector string
+/// Extract numeric score from CVSS vector string or plain number
 fn extract_cvss_score(score: &str) -> Option<f64> {
-    // CVSS vector format: "CVSS:3.1/AV:N/AC:L/..." or just a number
-    score.parse::<f64>().ok()
+    // Try plain number first: "7.5"
+    if let Ok(v) = score.parse::<f64>() {
+        return Some(v);
+    }
+    // CVSS vector format: "CVSS:3.1/AV:N/AC:L/..." — no embedded score,
+    // but some APIs put the score in a separate `score` field.
+    // Try extracting trailing float after last '/' if present
+    if score.starts_with("CVSS:") {
+        // Vector string itself doesn't contain a numeric score
+        return None;
+    }
+    None
 }

@@ -1,28 +1,33 @@
 pub mod types;
 
 use std::path::Path;
+
+use crate::error::LockpickError;
 use types::LockpickConfig;
 
 /// Load .lockpickrc.json or .lockpickrc.yaml from project root.
 /// Returns Default if no config file found.
-pub fn load_config(project_root: &Path) -> LockpickConfig {
+/// Returns Error if file exists but cannot be parsed.
+pub fn load_config(project_root: &Path) -> Result<LockpickConfig, LockpickError> {
     let json_path = project_root.join(".lockpickrc.json");
-    if json_path.exists()
-        && let Ok(content) = std::fs::read_to_string(&json_path)
-        && let Ok(config) = serde_json::from_str::<LockpickConfig>(&content)
-    {
-        return config;
+    if json_path.exists() {
+        let content = std::fs::read_to_string(&json_path)
+            .map_err(LockpickError::Io)?;
+        let config = serde_json::from_str::<LockpickConfig>(&content)
+            .map_err(|e| LockpickError::Config(format!("Invalid .lockpickrc.json: {e}")))?;
+        return Ok(config);
     }
 
     let yaml_path = project_root.join(".lockpickrc.yaml");
-    if yaml_path.exists()
-        && let Ok(content) = std::fs::read_to_string(&yaml_path)
-        && let Ok(config) = serde_yaml::from_str::<LockpickConfig>(&content)
-    {
-        return config;
+    if yaml_path.exists() {
+        let content = std::fs::read_to_string(&yaml_path)
+            .map_err(LockpickError::Io)?;
+        let config = serde_yaml::from_str::<LockpickConfig>(&content)
+            .map_err(|e| LockpickError::Config(format!("Invalid .lockpickrc.yaml: {e}")))?;
+        return Ok(config);
     }
 
-    LockpickConfig::default()
+    Ok(LockpickConfig::default())
 }
 
 #[cfg(test)]
@@ -32,12 +37,10 @@ mod tests {
 
     #[test]
     fn test_load_json_config() {
-        let dir = std::env::temp_dir().join("lockpick_test_rc_json");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join(".lockpickrc.json"),
+            dir.path().join(".lockpickrc.json"),
             r#"{
                 "ignore": ["husky", "lint-staged"],
                 "skip_dev": true,
@@ -47,73 +50,55 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_config(&dir);
+        let config = load_config(dir.path()).unwrap();
         assert_eq!(config.ignore, vec!["husky", "lint-staged"]);
         assert!(config.skip_dev);
         assert_eq!(config.lang, Some("zh".to_string()));
         assert_eq!(config.extra_configs, vec!["jest.config.ts"]);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_load_yaml_config() {
-        let dir = std::env::temp_dir().join("lockpick_test_rc_yaml");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join(".lockpickrc.yaml"),
+            dir.path().join(".lockpickrc.yaml"),
             "ignore:\n  - husky\n  - lint-staged\nskip_dev: false\nlang: en\n",
         )
         .unwrap();
 
-        let config = load_config(&dir);
+        let config = load_config(dir.path()).unwrap();
         assert_eq!(config.ignore, vec!["husky", "lint-staged"]);
         assert!(!config.skip_dev);
         assert_eq!(config.lang, Some("en".to_string()));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_json_takes_priority_over_yaml() {
-        let dir = std::env::temp_dir().join("lockpick_test_rc_priority");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
-        fs::write(dir.join(".lockpickrc.json"), r#"{"ignore": ["from-json"]}"#).unwrap();
-        fs::write(dir.join(".lockpickrc.yaml"), "ignore:\n  - from-yaml\n").unwrap();
+        fs::write(dir.path().join(".lockpickrc.json"), r#"{"ignore": ["from-json"]}"#).unwrap();
+        fs::write(dir.path().join(".lockpickrc.yaml"), "ignore:\n  - from-yaml\n").unwrap();
 
-        let config = load_config(&dir);
+        let config = load_config(dir.path()).unwrap();
         assert_eq!(config.ignore, vec!["from-json"]);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_no_config_returns_default() {
-        let dir = std::env::temp_dir().join("lockpick_test_rc_none");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
-        let config = load_config(&dir);
+        let config = load_config(dir.path()).unwrap();
         assert_eq!(config, LockpickConfig::default());
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn test_invalid_json_returns_default() {
-        let dir = std::env::temp_dir().join("lockpick_test_rc_invalid");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+    fn test_invalid_json_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
 
-        fs::write(dir.join(".lockpickrc.json"), "not valid json{{{").unwrap();
+        fs::write(dir.path().join(".lockpickrc.json"), "not valid json{{{").unwrap();
 
-        let config = load_config(&dir);
-        assert_eq!(config, LockpickConfig::default());
-
-        let _ = fs::remove_dir_all(&dir);
+        let result = load_config(dir.path());
+        assert!(result.is_err());
     }
 }

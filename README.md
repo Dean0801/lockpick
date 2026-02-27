@@ -7,15 +7,15 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 ## Features
 
 - **Unused dependency detection** — Parses JS/TS source files with [oxc](https://oxc.rs) to find packages you declared but never imported
-- **Config file awareness** — Scans ESLint, Babel, PostCSS, Vite, Next.js, Webpack, Tailwind config files to detect plugin references
-- **Scripts awareness** — Parses `package.json` scripts to detect CLI tools (e.g. `tsc` → `typescript`)
+- **Config file awareness** — Scans ESLint, Babel, PostCSS, Vite, Next.js, Webpack, Tailwind config files to detect plugin references (supports JSONC comments)
+- **Scripts awareness** — Parses `package.json` scripts to detect CLI tools (e.g. `tsc` → `typescript`), supports chained commands (`&&`, `||`, `;`, `|`)
 - **Monorepo support** — Detects pnpm/npm/yarn workspaces and analyzes each package independently
 - **Project config (.lockpickrc)** — JSON/YAML config file for persistent ignore rules, language, and extra config paths
 - **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs across all your dependencies
 - **Duplicate detection** — Finds packages with multiple versions installed in your lockfile
 - **Size analysis** — Measures the disk size of each dependency in `node_modules`
 - **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, package-lock.json, and yarn.lock
-- **ESM + CJS + dynamic import** — Handles `import`, `require()`, and `import()` syntax
+- **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions)
 - **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found
 - **Smart @types association** — `@types/react` won't be flagged as unused if `react` is imported
 - **Fast** — Native Rust binary, no Node.js runtime needed
@@ -69,7 +69,7 @@ lockpick --ignore react --ignore lodash
 | Lockfile | Status |
 |----------|--------|
 | pnpm-lock.yaml (v9) | ✅ Supported |
-| package-lock.json (v3) | ✅ Supported |
+| package-lock.json (v1/v2/v3) | ✅ Supported |
 | yarn.lock (v1) | ✅ Supported |
 
 ## Configuration (.lockpickrc)

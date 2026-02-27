@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use crate::error::LockpickError;
 use crate::{DependencyGraph, LockfileType, PackageInfo};
 
 /// Represents a single package entry in the v3 `packages` map.
@@ -13,31 +14,69 @@ pub struct NpmPackageEntry {
     pub dev: bool,
 }
 
-/// Top-level package-lock.json v3 structure.
+/// Top-level package-lock.json structure (supports v1/v2/v3).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NpmLockfile {
-    pub lockfile_version: u32,
+    pub lockfile_version: Option<u32>,
     #[serde(default)]
     pub packages: HashMap<String, NpmPackageEntry>,
+    /// v1/v2 legacy format
+    #[serde(default)]
+    pub dependencies: HashMap<String, NpmLegacyDep>,
 }
 
-/// Parse package-lock.json (v3) content into a DependencyGraph.
-pub fn parse(content: &str) -> Result<DependencyGraph, String> {
+/// Legacy v1/v2 dependency entry
+#[derive(Debug, Deserialize)]
+pub struct NpmLegacyDep {
+    pub version: Option<String>,
+    pub resolved: Option<String>,
+    pub integrity: Option<String>,
+    #[serde(default)]
+    pub dev: bool,
+    /// Nested dependencies (v1 style)
+    #[serde(default)]
+    pub dependencies: HashMap<String, NpmLegacyDep>,
+}
+
+/// Parse package-lock.json (v1/v2/v3) content into a DependencyGraph.
+pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
     let lockfile: NpmLockfile = serde_json::from_str(content)
-        .map_err(|e| format!("Failed to parse package-lock.json: {e}"))?;
+        .map_err(|e| LockpickError::Parse(format!("Failed to parse package-lock.json: {e}")))?;
 
     let mut deps = HashMap::new();
     let mut dev_deps = HashMap::new();
     let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
 
-    for (key, entry) in &lockfile.packages {
-        // Skip the root entry (empty string key)
+    let version = lockfile.lockfile_version.unwrap_or(1);
+
+    if version >= 3 || (version == 2 && !lockfile.packages.is_empty()) {
+        // v3 (or v2 with packages field): use `packages` map
+        parse_v3_packages(&lockfile.packages, &mut deps, &mut dev_deps, &mut all_packages);
+    } else {
+        // v1 (or v2 without packages): use legacy `dependencies` map
+        parse_v1_dependencies(&lockfile.dependencies, &mut deps, &mut dev_deps, &mut all_packages);
+    }
+
+    Ok(DependencyGraph {
+        dependencies: deps,
+        dev_dependencies: dev_deps,
+        lockfile_type: LockfileType::Npm,
+        all_packages,
+    })
+}
+
+/// Parse v3 (and v2 with packages) format
+fn parse_v3_packages(
+    packages: &HashMap<String, NpmPackageEntry>,
+    deps: &mut HashMap<String, PackageInfo>,
+    dev_deps: &mut HashMap<String, PackageInfo>,
+    all_packages: &mut HashMap<String, Vec<String>>,
+) {
+    for (key, entry) in packages {
         if key.is_empty() {
             continue;
         }
-
-        // Extract package name: strip "node_modules/" prefix, handle scoped packages
         let name = key
             .rfind("node_modules/")
             .map(|pos| &key[pos + "node_modules/".len()..])
@@ -48,7 +87,6 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
             None => continue,
         };
 
-        // Track in all_packages
         all_packages
             .entry(name.to_string())
             .or_default()
@@ -56,23 +94,53 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
 
         let info = PackageInfo {
             name: name.to_string(),
-            version: version.clone(),
+            version,
             integrity: entry.integrity.clone(),
         };
 
         if entry.dev {
-            dev_deps.insert(name.to_string(), info);
+            dev_deps.entry(name.to_string()).or_insert(info);
         } else {
-            deps.insert(name.to_string(), info);
+            deps.entry(name.to_string()).or_insert(info);
         }
     }
+}
 
-    Ok(DependencyGraph {
-        dependencies: deps,
-        dev_dependencies: dev_deps,
-        lockfile_type: LockfileType::Npm,
-        all_packages,
-    })
+/// Parse v1/v2 legacy `dependencies` format (recursive)
+fn parse_v1_dependencies(
+    legacy_deps: &HashMap<String, NpmLegacyDep>,
+    deps: &mut HashMap<String, PackageInfo>,
+    dev_deps: &mut HashMap<String, PackageInfo>,
+    all_packages: &mut HashMap<String, Vec<String>>,
+) {
+    for (name, entry) in legacy_deps {
+        let version = match &entry.version {
+            Some(v) => v.clone(),
+            None => continue,
+        };
+
+        all_packages
+            .entry(name.clone())
+            .or_default()
+            .push(version.clone());
+
+        let info = PackageInfo {
+            name: name.clone(),
+            version,
+            integrity: entry.integrity.clone(),
+        };
+
+        if entry.dev {
+            dev_deps.entry(name.clone()).or_insert(info);
+        } else {
+            deps.entry(name.clone()).or_insert(info);
+        }
+
+        // Recurse into nested dependencies
+        if !entry.dependencies.is_empty() {
+            parse_v1_dependencies(&entry.dependencies, deps, dev_deps, all_packages);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -112,5 +180,31 @@ mod tests {
     fn test_parse_invalid_json() {
         let result = parse("this is not valid json {{{");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_v1_basic() {
+        let content = r#"{
+            "name": "test",
+            "version": "1.0.0",
+            "lockfileVersion": 1,
+            "dependencies": {
+                "lodash": {
+                    "version": "4.17.21",
+                    "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz",
+                    "integrity": "sha512-fake"
+                },
+                "typescript": {
+                    "version": "5.3.3",
+                    "dev": true
+                }
+            }
+        }"#;
+        let graph = parse(content).unwrap();
+        assert_eq!(graph.lockfile_type, LockfileType::Npm);
+        assert_eq!(graph.dependencies.len(), 1);
+        assert!(graph.dependencies.contains_key("lodash"));
+        assert_eq!(graph.dev_dependencies.len(), 1);
+        assert!(graph.dev_dependencies.contains_key("typescript"));
     }
 }

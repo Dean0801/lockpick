@@ -6,25 +6,28 @@ pub mod unused;
 use glob::glob;
 use std::path::{Path, PathBuf};
 
+use crate::error::LockpickError;
+
 /// JS/TS file extensions to scan
-const SOURCE_EXTENSIONS: &[&str] = &["js", "ts", "jsx", "tsx", "mjs", "cjs"];
+const SOURCE_EXTENSIONS: &[&str] = &["js", "ts", "jsx", "tsx", "mjs", "cjs", "mts", "cts"];
 
 /// Directories to exclude from scanning
 const EXCLUDE_DIRS: &[&str] = &["node_modules", "dist", "build", ".git", ".next", "coverage"];
 
-/// Discover all JS/TS source files in a project directory
-pub fn discover_source_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+/// Discover all JS/TS source files in a project directory (single glob pass)
+pub fn discover_source_files(root: &Path) -> Result<Vec<PathBuf>, LockpickError> {
+    let pattern = format!("{}/**/*", root.display());
+    let entries =
+        glob(&pattern).map_err(|e| LockpickError::Parse(format!("Invalid glob pattern: {e}")))?;
+
     let mut files = Vec::new();
-
-    for ext in SOURCE_EXTENSIONS {
-        let pattern = format!("{}/**/*.{}", root.display(), ext);
-        let entries = glob(&pattern).map_err(|e| format!("Invalid glob pattern: {e}"))?;
-
-        for entry in entries {
-            let path = entry.map_err(|e| format!("Glob error: {e}"))?;
-            if !should_exclude(&path) {
-                files.push(path);
-            }
+    for entry in entries {
+        let path = entry.map_err(|e| LockpickError::Parse(format!("Glob error: {e}")))?;
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && SOURCE_EXTENSIONS.contains(&ext)
+            && !should_exclude(&path)
+        {
+            files.push(path);
         }
     }
 

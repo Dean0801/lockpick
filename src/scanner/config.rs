@@ -3,6 +3,54 @@ use std::path::Path;
 
 use super::imports::extract_imports_from_source;
 
+/// Strip JSONC comments (// and /* */) before parsing
+fn strip_jsonc_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut in_string = false;
+
+    while i < len {
+        if in_string {
+            if bytes[i] == b'\\' && i + 1 < len {
+                out.push(bytes[i] as char);
+                out.push(bytes[i + 1] as char);
+                i += 2;
+                continue;
+            }
+            if bytes[i] == b'"' {
+                in_string = false;
+            }
+            out.push(bytes[i] as char);
+            i += 1;
+        } else if bytes[i] == b'"' {
+            in_string = true;
+            out.push('"');
+            i += 1;
+        } else if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
+            // Line comment: skip until newline
+            i += 2;
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            // Block comment: skip until */
+            i += 2;
+            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 < len {
+                i += 2; // skip */
+            }
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
 /// Known JS/TS config file patterns to scan in project root
 const JS_CONFIG_FILES: &[&str] = &[
     "eslint.config.js",
@@ -102,17 +150,24 @@ const JSON_CONFIG_RULES: &[JsonConfigRule] = &[
 ];
 
 fn expand_plugin_name(short_name: &str, prefixes: &[&str]) -> Vec<String> {
-    if short_name.starts_with('@') || prefixes.iter().any(|p| short_name.starts_with(p)) {
-        return vec![short_name.to_string()];
+    // Strip "plugin:X/config" format → extract "X"
+    let name = if let Some(stripped) = short_name.strip_prefix("plugin:") {
+        stripped.split('/').next().unwrap_or(stripped)
+    } else {
+        short_name
+    };
+
+    if name.starts_with('@') || prefixes.iter().any(|p| name.starts_with(p)) {
+        return vec![name.to_string()];
     }
     if prefixes.is_empty() {
-        return vec![short_name.to_string()];
+        return vec![name.to_string()];
     }
     let mut candidates = Vec::new();
     for prefix in prefixes {
-        candidates.push(format!("{prefix}{short_name}"));
+        candidates.push(format!("{prefix}{name}"));
     }
-    candidates.push(short_name.to_string());
+    candidates.push(name.to_string());
     candidates
 }
 
@@ -154,7 +209,9 @@ pub fn extract_json_config_deps(project_root: &Path) -> HashSet<String> {
                         Err(_) => continue,
                     }
                 } else {
-                    match serde_json::from_str(&content) {
+                    // Strip JSONC comments before parsing
+                    let stripped = strip_jsonc_comments(&content);
+                    match serde_json::from_str(&stripped) {
                         Ok(v) => v,
                         Err(_) => continue,
                     }
@@ -188,12 +245,10 @@ mod tests {
 
     #[test]
     fn test_extract_js_config_deps_eslint() {
-        let dir = std::env::temp_dir().join("lockpick_test_js_config_eslint");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join("eslint.config.js"),
+            dir.path().join("eslint.config.js"),
             r#"
 import eslintPluginReact from 'eslint-plugin-react';
 import tseslint from 'typescript-eslint';
@@ -205,21 +260,17 @@ export default [
         )
         .unwrap();
 
-        let deps = extract_js_config_deps(&dir);
+        let deps = extract_js_config_deps(dir.path());
         assert!(deps.contains("eslint-plugin-react"));
         assert!(deps.contains("typescript-eslint"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_js_config_deps_vite() {
-        let dir = std::env::temp_dir().join("lockpick_test_js_config_vite");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join("vite.config.ts"),
+            dir.path().join("vite.config.ts"),
             r#"
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -228,21 +279,17 @@ export default defineConfig({ plugins: [react()] });
         )
         .unwrap();
 
-        let deps = extract_js_config_deps(&dir);
+        let deps = extract_js_config_deps(dir.path());
         assert!(deps.contains("vite"));
         assert!(deps.contains("@vitejs/plugin-react"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_js_config_deps_cjs() {
-        let dir = std::env::temp_dir().join("lockpick_test_js_config_cjs");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join("postcss.config.cjs"),
+            dir.path().join("postcss.config.cjs"),
             r#"
 const tailwindcss = require('tailwindcss');
 const autoprefixer = require('autoprefixer');
@@ -251,33 +298,25 @@ module.exports = { plugins: [tailwindcss, autoprefixer] };
         )
         .unwrap();
 
-        let deps = extract_js_config_deps(&dir);
+        let deps = extract_js_config_deps(dir.path());
         assert!(deps.contains("tailwindcss"));
         assert!(deps.contains("autoprefixer"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_js_config_deps_no_configs() {
-        let dir = std::env::temp_dir().join("lockpick_test_js_config_none");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
-        let deps = extract_js_config_deps(&dir);
+        let deps = extract_js_config_deps(dir.path());
         assert!(deps.is_empty());
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_extra_config_deps() {
-        let dir = std::env::temp_dir().join("lockpick_test_extra_config");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join("jest.config.ts"),
+            dir.path().join("jest.config.ts"),
             r#"
 import type { Config } from 'jest';
 import { pathsToModuleNameMapper } from 'ts-jest';
@@ -288,21 +327,17 @@ export default config;
         .unwrap();
 
         let extras = vec!["jest.config.ts".to_string()];
-        let deps = extract_extra_config_deps(&dir, &extras);
+        let deps = extract_extra_config_deps(dir.path(), &extras);
         assert!(deps.contains("jest"));
         assert!(deps.contains("ts-jest"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_json_config_eslintrc() {
-        let dir = std::env::temp_dir().join("lockpick_test_json_eslintrc");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join(".eslintrc.json"),
+            dir.path().join(".eslintrc.json"),
             r#"{
                 "extends": ["airbnb", "plugin:react/recommended"],
                 "plugins": ["react", "import"]
@@ -310,22 +345,18 @@ export default config;
         )
         .unwrap();
 
-        let deps = extract_json_config_deps(&dir);
+        let deps = extract_json_config_deps(dir.path());
         assert!(deps.contains("eslint-plugin-react"));
         assert!(deps.contains("eslint-plugin-import"));
         assert!(deps.contains("eslint-config-airbnb"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_json_config_babelrc() {
-        let dir = std::env::temp_dir().join("lockpick_test_json_babelrc");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join(".babelrc"),
+            dir.path().join(".babelrc"),
             r#"{
                 "presets": ["@babel/preset-env", ["@babel/preset-react", {"runtime": "automatic"}]],
                 "plugins": ["transform-runtime"]
@@ -333,52 +364,42 @@ export default config;
         )
         .unwrap();
 
-        let deps = extract_json_config_deps(&dir);
+        let deps = extract_json_config_deps(dir.path());
         assert!(deps.contains("@babel/preset-env"));
         assert!(deps.contains("@babel/preset-react"));
         assert!(deps.contains("babel-plugin-transform-runtime"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_json_config_postcssrc() {
-        let dir = std::env::temp_dir().join("lockpick_test_json_postcssrc");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join(".postcssrc.json"),
+            dir.path().join(".postcssrc.json"),
             r#"{
                 "plugins": {"autoprefixer": {}, "tailwindcss": {}}
             }"#,
         )
         .unwrap();
 
-        let deps = extract_json_config_deps(&dir);
+        let deps = extract_json_config_deps(dir.path());
         assert!(deps.contains("autoprefixer"));
         assert!(deps.contains("tailwindcss"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_extract_json_config_yaml_eslintrc() {
-        let dir = std::env::temp_dir().join("lockpick_test_yaml_eslintrc");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join(".eslintrc.yaml"),
+            dir.path().join(".eslintrc.yaml"),
             "extends:\n  - airbnb\nplugins:\n  - react\n",
         )
         .unwrap();
 
-        let deps = extract_json_config_deps(&dir);
+        let deps = extract_json_config_deps(dir.path());
         assert!(deps.contains("eslint-config-airbnb"));
         assert!(deps.contains("eslint-plugin-react"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -395,12 +416,10 @@ export default config;
 
     #[test]
     fn test_extract_config_deps_combined() {
-        let dir = std::env::temp_dir().join("lockpick_test_config_combined");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
 
         fs::write(
-            dir.join("vite.config.ts"),
+            dir.path().join("vite.config.ts"),
             r#"
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -409,12 +428,50 @@ export default defineConfig({ plugins: [react()] });
         )
         .unwrap();
 
-        fs::write(dir.join(".eslintrc.json"), r#"{"plugins": ["react"]}"#).unwrap();
+        fs::write(dir.path().join(".eslintrc.json"), r#"{"plugins": ["react"]}"#).unwrap();
 
-        let deps = extract_config_deps(&dir);
+        let deps = extract_config_deps(dir.path());
         assert!(deps.contains("@vitejs/plugin-react"));
         assert!(deps.contains("eslint-plugin-react"));
+    }
 
-        let _ = fs::remove_dir_all(&dir);
+    #[test]
+    fn test_strip_jsonc_comments() {
+        let input = r#"{
+            // This is a line comment
+            "plugins": ["react"], /* block comment */
+            "extends": ["airbnb"]
+        }"#;
+        let stripped = strip_jsonc_comments(input);
+        let parsed: serde_json::Value = serde_json::from_str(&stripped).unwrap();
+        assert_eq!(
+            parsed["plugins"][0].as_str(),
+            Some("react")
+        );
+        assert_eq!(
+            parsed["extends"][0].as_str(),
+            Some("airbnb")
+        );
+    }
+
+    #[test]
+    fn test_jsonc_config_with_comments() {
+        let dir = tempfile::tempdir().unwrap();
+
+        fs::write(
+            dir.path().join(".eslintrc.json"),
+            r#"{
+                // Enable react plugin
+                "plugins": ["react"],
+                /* Multi-line
+                   comment */
+                "extends": ["airbnb"]
+            }"#,
+        )
+        .unwrap();
+
+        let deps = extract_json_config_deps(dir.path());
+        assert!(deps.contains("eslint-plugin-react"));
+        assert!(deps.contains("eslint-config-airbnb"));
     }
 }

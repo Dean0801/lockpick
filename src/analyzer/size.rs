@@ -32,21 +32,32 @@ pub fn analyze_size(project_path: &Path, graph: &DependencyGraph) -> SizeReport 
     }
 }
 
-/// Recursively calculate directory size in bytes
+/// Calculate directory size in bytes (iterative, symlink-safe)
 fn dir_size(path: &Path) -> u64 {
     if !path.exists() {
         return 0;
     }
     let mut total = 0u64;
-    if let Ok(entries) = std::fs::read_dir(path) {
+    let mut stack = vec![path.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         for entry in entries.flatten() {
-            let meta = entry.metadata();
-            if let Ok(meta) = meta {
-                if meta.is_file() {
-                    total += meta.len();
-                } else if meta.is_dir() {
-                    total += dir_size(&entry.path());
-                }
+            // Use symlink_metadata to avoid following symlinks
+            let meta = match std::fs::symlink_metadata(entry.path()) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            if meta.is_file() {
+                total += meta.len();
+            } else if meta.is_dir() {
+                stack.push(entry.path());
             }
         }
     }
@@ -63,8 +74,8 @@ mod tests {
     #[test]
     fn test_analyze_size_with_packages() {
         // Create temp node_modules with fake packages
-        let tmp = std::env::temp_dir().join("lockpick_size_test");
-        let nm = tmp.join("node_modules");
+        let tmp = tempfile::tempdir().unwrap();
+        let nm = tmp.path().join("node_modules");
         let react_dir = nm.join("react");
         fs::create_dir_all(&react_dir).unwrap();
         fs::write(react_dir.join("index.js"), "a".repeat(1000)).unwrap();
@@ -87,19 +98,16 @@ mod tests {
             all_packages: HashMap::new(),
         };
 
-        let report = analyze_size(&tmp, &graph);
+        let report = analyze_size(tmp.path(), &graph);
         assert_eq!(report.entries.len(), 1);
         assert_eq!(report.entries[0].name, "react");
         assert_eq!(report.entries[0].size_bytes, 1500);
         assert_eq!(report.total_bytes, 1500);
-
-        // Cleanup
-        fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn test_analyze_size_missing_dir() {
-        let tmp = std::env::temp_dir().join("lockpick_size_missing");
+        let tmp = tempfile::tempdir().unwrap();
         let mut deps = HashMap::new();
         deps.insert(
             "nonexistent".to_string(),
@@ -117,7 +125,7 @@ mod tests {
             all_packages: HashMap::new(),
         };
 
-        let report = analyze_size(&tmp, &graph);
+        let report = analyze_size(tmp.path(), &graph);
         assert_eq!(report.entries.len(), 1);
         assert_eq!(report.entries[0].size_bytes, 0);
         assert_eq!(report.total_bytes, 0);
@@ -125,8 +133,8 @@ mod tests {
 
     #[test]
     fn test_analyze_size_scoped_package() {
-        let tmp = std::env::temp_dir().join("lockpick_size_scoped");
-        let nm = tmp.join("node_modules").join("@types").join("react");
+        let tmp = tempfile::tempdir().unwrap();
+        let nm = tmp.path().join("node_modules").join("@types").join("react");
         fs::create_dir_all(&nm).unwrap();
         fs::write(nm.join("index.d.ts"), "c".repeat(200)).unwrap();
 
@@ -147,11 +155,9 @@ mod tests {
             all_packages: HashMap::new(),
         };
 
-        let report = analyze_size(&tmp, &graph);
+        let report = analyze_size(tmp.path(), &graph);
         assert_eq!(report.entries.len(), 1);
         assert_eq!(report.entries[0].name, "@types/react");
         assert_eq!(report.entries[0].size_bytes, 200);
-
-        fs::remove_dir_all(&tmp).ok();
     }
 }

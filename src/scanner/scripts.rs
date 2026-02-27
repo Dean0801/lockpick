@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::LazyLock;
 
 /// Map CLI commands found in package.json scripts to their package names.
-fn cli_to_package_map() -> HashMap<&'static str, &'static str> {
+static CLI_TO_PACKAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
         ("tsc", "typescript"),
         ("tsup", "tsup"),
@@ -31,7 +32,7 @@ fn cli_to_package_map() -> HashMap<&'static str, &'static str> {
         ("typedoc", "typedoc"),
         ("tsc-alias", "tsc-alias"),
     ])
-}
+});
 
 /// Commands that are runners/shells and should be skipped when extracting the real tool.
 const SKIP_COMMANDS: &[&str] = &[
@@ -39,11 +40,11 @@ const SKIP_COMMANDS: &[&str] = &[
     "cp", "mkdir", "cat", "exit", "true", "false", "test",
 ];
 
-/// Extract the first meaningful command token from a script value.
+/// Extract the first meaningful command token from a single command segment.
 ///
 /// Skips env var assignments (`KEY=val`), flags (`--foo`), and runner commands.
-fn extract_command(script_value: &str) -> Option<String> {
-    for token in script_value.split_whitespace() {
+fn extract_command_from_segment(segment: &str) -> Option<String> {
+    for token in segment.split_whitespace() {
         // Skip env var assignments like NODE_ENV=production
         if token.contains('=') && !token.starts_with('-') {
             continue;
@@ -61,6 +62,21 @@ fn extract_command(script_value: &str) -> Option<String> {
     None
 }
 
+/// Split a script value by chain operators (`&&`, `||`, `;`, `|`)
+/// and extract meaningful commands from each segment.
+fn extract_commands(script_value: &str) -> Vec<String> {
+    // Replace operators with a common delimiter for splitting
+    let normalized = script_value
+        .replace("&&", "\n")
+        .replace("||", "\n")
+        .replace([';', '|'], "\n");
+
+    normalized
+        .lines()
+        .filter_map(|seg| extract_command_from_segment(seg.trim()))
+        .collect()
+}
+
 /// Read package.json scripts and return the set of package names referenced by those scripts.
 pub fn extract_script_deps(project_root: &Path) -> HashSet<String> {
     let mut deps = HashSet::new();
@@ -76,15 +92,14 @@ pub fn extract_script_deps(project_root: &Path) -> HashSet<String> {
         Err(_) => return deps,
     };
 
-    let map = cli_to_package_map();
-
     if let Some(scripts) = json.get("scripts").and_then(|s| s.as_object()) {
         for script_value in scripts.values() {
-            if let Some(val) = script_value.as_str()
-                && let Some(cmd) = extract_command(val)
-                && let Some(&pkg) = map.get(cmd.as_str())
-            {
-                deps.insert(pkg.to_string());
+            if let Some(val) = script_value.as_str() {
+                for cmd in extract_commands(val) {
+                    if let Some(&pkg) = CLI_TO_PACKAGE.get(cmd.as_str()) {
+                        deps.insert(pkg.to_string());
+                    }
+                }
             }
         }
     }
@@ -99,18 +114,24 @@ mod tests {
 
     #[test]
     fn test_extract_command_simple() {
-        assert_eq!(extract_command("eslint ."), Some("eslint".to_string()));
+        assert_eq!(
+            extract_command_from_segment("eslint ."),
+            Some("eslint".to_string())
+        );
     }
 
     #[test]
     fn test_extract_command_skip_npx() {
-        assert_eq!(extract_command("npx eslint ."), Some("eslint".to_string()));
+        assert_eq!(
+            extract_command_from_segment("npx eslint ."),
+            Some("eslint".to_string())
+        );
     }
 
     #[test]
     fn test_extract_command_skip_node() {
         assert_eq!(
-            extract_command("node dist/index.js"),
+            extract_command_from_segment("node dist/index.js"),
             Some("dist/index.js".to_string())
         );
     }
@@ -118,19 +139,46 @@ mod tests {
     #[test]
     fn test_extract_command_with_env_var() {
         assert_eq!(
-            extract_command("cross-env NODE_ENV=production node server.js"),
+            extract_command_from_segment("cross-env NODE_ENV=production node server.js"),
             Some("cross-env".to_string())
         );
     }
 
     #[test]
     fn test_extract_command_npm_run() {
-        assert_eq!(extract_command("npm run build"), Some("build".to_string()));
+        assert_eq!(
+            extract_command_from_segment("npm run build"),
+            Some("build".to_string())
+        );
     }
 
     #[test]
     fn test_extract_command_empty() {
-        assert_eq!(extract_command(""), None);
+        assert_eq!(extract_command_from_segment(""), None);
+    }
+
+    #[test]
+    fn test_extract_commands_chained() {
+        let cmds = extract_commands("eslint . && prettier --write .");
+        assert_eq!(cmds, vec!["eslint", "prettier"]);
+    }
+
+    #[test]
+    fn test_extract_commands_semicolon() {
+        let cmds = extract_commands("tsc; eslint .");
+        assert_eq!(cmds, vec!["tsc", "eslint"]);
+    }
+
+    #[test]
+    fn test_extract_commands_or_chain() {
+        let cmds = extract_commands("eslint . || true");
+        assert_eq!(cmds, vec!["eslint"]);
+    }
+
+    #[test]
+    fn test_extract_commands_pipe() {
+        let cmds = extract_commands("jest --json | tsc");
+        assert_eq!(cmds, vec!["jest", "tsc"]);
     }
 
     #[test]

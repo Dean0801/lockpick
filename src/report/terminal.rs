@@ -2,13 +2,14 @@ use comfy_table::{ContentArrangement, Table};
 use owo_colors::OwoColorize;
 
 use super::Reporter;
+use crate::error::LockpickError;
 use crate::i18n::I18n;
 use crate::{AnalysisResult, DepType, Severity};
 
 pub struct TerminalReporter;
 
 impl Reporter for TerminalReporter {
-    fn report(&self, result: &AnalysisResult, i18n: &I18n) -> Result<(), String> {
+    fn report(&self, result: &AnalysisResult, i18n: &I18n) -> Result<(), LockpickError> {
         print_unused(result, i18n);
         print_vulns(result, i18n);
         print_duplicates(result, i18n);

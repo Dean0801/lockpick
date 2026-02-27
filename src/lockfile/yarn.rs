@@ -1,15 +1,25 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use crate::error::LockpickError;
 use crate::{DependencyGraph, LockfileType, PackageInfo};
 
 /// Parse yarn.lock v1 content into DependencyGraph
-pub fn parse(content: &str) -> Result<DependencyGraph, String> {
+pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
+    parse_with_dev_names(content, &HashSet::new())
+}
+
+/// Parse yarn.lock with dev dependency names from package.json
+pub fn parse_with_dev_names(
+    content: &str,
+    dev_names: &HashSet<String>,
+) -> Result<DependencyGraph, LockpickError> {
     // Validate it looks like a yarn.lock file
     if !content.contains("yarn lockfile v1") && !content.trim().is_empty() {
         // Try to parse anyway, but if there are no entries, return error
     }
 
     let mut dependencies = HashMap::new();
+    let mut dev_dependencies = HashMap::new();
     let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
 
     let lines: Vec<&str> = content.lines().collect();
@@ -27,7 +37,8 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
         // Entry header: not indented, ends with ':'
         if !line.starts_with(' ') && line.ends_with(':') {
             let header = line.trim_end_matches(':').trim();
-            let name = extract_package_name(header)?;
+            let name = extract_package_name(header)
+                .map_err(LockpickError::Parse)?;
 
             // Parse indented block
             let mut version = None;
@@ -38,29 +49,40 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
                 let trimmed = lines[i].trim();
 
                 if trimmed.starts_with("version ") {
-                    version = Some(extract_quoted_value(trimmed, "version")?);
+                    version = Some(
+                        extract_quoted_value(trimmed, "version")
+                            .map_err(LockpickError::Parse)?,
+                    );
                 } else if trimmed.starts_with("integrity ") {
-                    integrity = Some(extract_quoted_value(trimmed, "integrity")?);
+                    integrity = Some(
+                        extract_quoted_value(trimmed, "integrity")
+                            .map_err(LockpickError::Parse)?,
+                    );
                 }
 
                 i += 1;
             }
 
-            let ver = version.ok_or_else(|| format!("Missing version for package '{name}'"))?;
+            let ver = version.ok_or_else(|| {
+                LockpickError::Parse(format!("Missing version for package '{name}'"))
+            })?;
 
             all_packages
                 .entry(name.clone())
                 .or_default()
                 .push(ver.clone());
 
-            dependencies.insert(
-                name.clone(),
-                PackageInfo {
-                    name,
-                    version: ver,
-                    integrity,
-                },
-            );
+            let info = PackageInfo {
+                name: name.clone(),
+                version: ver,
+                integrity,
+            };
+
+            if dev_names.contains(&name) {
+                dev_dependencies.entry(name).or_insert(info);
+            } else {
+                dependencies.entry(name).or_insert(info);
+            }
         } else {
             i += 1;
         }
@@ -69,13 +91,13 @@ pub fn parse(content: &str) -> Result<DependencyGraph, String> {
     if dependencies.is_empty() && !content.trim().is_empty() {
         // Check if the content had the header but no packages — that's fine
         if !content.contains("yarn lockfile v1") {
-            return Err("Invalid yarn.lock format".to_string());
+            return Err(LockpickError::Parse("Invalid yarn.lock format".into()));
         }
     }
 
     Ok(DependencyGraph {
         dependencies,
-        dev_dependencies: HashMap::new(),
+        dev_dependencies,
         lockfile_type: LockfileType::Yarn,
         all_packages,
     })
