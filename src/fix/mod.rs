@@ -24,6 +24,7 @@ pub fn fix_unused(
     project_path: &Path,
     unused: &[UnusedDep],
     lockfile_type: &LockfileType,
+    dry_run: bool,
 ) -> Result<FixResult, LockpickError> {
     if unused.is_empty() {
         return Ok(FixResult {
@@ -32,8 +33,17 @@ pub fn fix_unused(
         });
     }
 
-    let (binary, subcommand) = get_pm_command(lockfile_type);
     let names: Vec<&str> = unused.iter().map(|d| d.name.as_str()).collect();
+
+    // In dry_run mode, report all packages as removed without executing anything
+    if dry_run {
+        return Ok(FixResult {
+            removed: names.iter().map(|n| n.to_string()).collect(),
+            failed: vec![],
+        });
+    }
+
+    let (binary, subcommand) = get_pm_command(lockfile_type);
 
     // Batch remove: pnpm remove pkg1 pkg2 pkg3
     let output = Command::new(binary)
@@ -44,22 +54,40 @@ pub fn fix_unused(
         .map_err(LockpickError::Io)?;
 
     if output.status.success() {
-        Ok(FixResult {
+        return Ok(FixResult {
             removed: names.iter().map(|n| n.to_string()).collect(),
             failed: vec![],
-        })
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Ok(FixResult {
-            removed: vec![],
-            failed: names.iter().map(|n| (n.to_string(), stderr.clone())).collect(),
-        })
+        });
     }
+
+    // Batch failed — fall back to removing packages one by one
+    // so we can accurately identify which ones actually failed.
+    let mut removed = Vec::new();
+    let mut failed = Vec::new();
+
+    for name in &names {
+        let single = Command::new(binary)
+            .arg(subcommand)
+            .arg(name)
+            .current_dir(project_path)
+            .output()
+            .map_err(LockpickError::Io)?;
+
+        if single.status.success() {
+            removed.push(name.to_string());
+        } else {
+            let stderr = String::from_utf8_lossy(&single.stderr).to_string();
+            failed.push((name.to_string(), stderr));
+        }
+    }
+
+    Ok(FixResult { removed, failed })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DepType;
 
     #[test]
     fn test_get_pm_command_pnpm() {
@@ -91,16 +119,28 @@ mod tests {
 
     #[test]
     fn test_fix_empty_unused() {
-        let result = fix_unused(Path::new("."), &[], &LockfileType::Npm).unwrap();
+        let result = fix_unused(Path::new("."), &[], &LockfileType::Npm, false).unwrap();
         assert!(result.removed.is_empty());
         assert!(result.failed.is_empty());
     }
 
     #[test]
     fn test_fix_dry_run() {
-        // dry_run is now handled in main.rs before calling fix_unused
-        // This test verifies fix_unused returns empty for empty input
-        let result = fix_unused(Path::new("."), &[], &LockfileType::Pnpm).unwrap();
-        assert!(result.removed.is_empty());
+        // dry_run should return all packages as removed without executing anything
+        let deps = vec![
+            UnusedDep {
+                name: "foo".to_string(),
+                version: "1.0.0".to_string(),
+                dep_type: DepType::Prod,
+            },
+            UnusedDep {
+                name: "bar".to_string(),
+                version: "2.0.0".to_string(),
+                dep_type: DepType::Dev,
+            },
+        ];
+        let result = fix_unused(Path::new("."), &deps, &LockfileType::Pnpm, true).unwrap();
+        assert_eq!(result.removed, vec!["foo", "bar"]);
+        assert!(result.failed.is_empty());
     }
 }

@@ -20,7 +20,53 @@ fn parse_name_version(s: &str) -> Option<(&str, &str)> {
     Some((name, version))
 }
 
+/// Build a mapping from package name to (resolved_version, integrity) from the
+/// "packages" section of bun.lock. The integrity hash is extracted from the
+/// third element of each package array, if present.
+fn build_resolved_map(
+    root: &serde_json::Value,
+) -> (HashMap<String, Vec<String>>, HashMap<String, (String, Option<String>)>) {
+    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
+    let mut resolved: HashMap<String, (String, Option<String>)> = HashMap::new();
+
+    if let Some(packages) = root.get("packages").and_then(|p| p.as_object()) {
+        for (_key, value) in packages {
+            if let Some(arr) = value.as_array() {
+                if let Some(first) = arr.first().and_then(|v| v.as_str()) {
+                    if let Some((name, version)) = parse_name_version(first) {
+                        let integrity = arr.get(2).and_then(|v| v.as_str()).map(String::from);
+                        all_packages
+                            .entry(name.to_string())
+                            .or_default()
+                            .push(version.to_string());
+                        resolved.insert(name.to_string(), (version.to_string(), integrity));
+                    }
+                }
+            }
+        }
+    }
+
+    (all_packages, resolved)
+}
+
+/// Backfill resolved versions from the packages map into dependency entries.
+/// Replaces specifiers (e.g. "^18.2.0") with actual resolved versions (e.g. "18.2.0").
+fn backfill_versions(
+    target: &mut HashMap<String, PackageInfo>,
+    resolved: &HashMap<String, (String, Option<String>)>,
+) {
+    for (name, info) in target.iter_mut() {
+        if let Some((version, integrity)) = resolved.get(name.as_str()) {
+            info.version = version.clone();
+            if info.integrity.is_none() {
+                info.integrity = integrity.clone();
+            }
+        }
+    }
+}
+
 /// Parse bun.lock (JSONC format) content into a DependencyGraph.
+/// Supports monorepo workspaces by merging all workspace entries.
 pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
     let stripped = strip_jsonc_comments(content);
     let root: serde_json::Value = serde_json::from_str(&stripped)
@@ -28,29 +74,26 @@ pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
 
     let mut deps = HashMap::new();
     let mut dev_deps = HashMap::new();
-    let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
 
-    // Extract dependencies from workspaces[""]
-    if let Some(workspace) = root.get("workspaces").and_then(|w| w.get("")) {
-        extract_deps(workspace, "dependencies", &mut deps);
-        extract_deps(workspace, "devDependencies", &mut dev_deps);
-    }
-
-    // Extract all_packages from "packages"
-    if let Some(packages) = root.get("packages").and_then(|p| p.as_object()) {
-        for (_key, value) in packages {
-            if let Some(arr) = value.as_array() {
-                if let Some(first) = arr.first().and_then(|v| v.as_str()) {
-                    if let Some((name, version)) = parse_name_version(first) {
-                        all_packages
-                            .entry(name.to_string())
-                            .or_default()
-                            .push(version.to_string());
-                    }
-                }
+    // Extract dependencies from all workspaces (root "" and sub-workspaces)
+    if let Some(workspaces) = root.get("workspaces").and_then(|w| w.as_object()) {
+        for (key, workspace) in workspaces {
+            if key.is_empty() {
+                // Root workspace: deps go into main deps/dev_deps
+                extract_deps(workspace, "dependencies", &mut deps);
+                extract_deps(workspace, "devDependencies", &mut dev_deps);
+            } else {
+                // Sub-workspace: merge into main deps
+                extract_deps(workspace, "dependencies", &mut deps);
+                extract_deps(workspace, "devDependencies", &mut dev_deps);
             }
         }
     }
+
+    // Build resolved version map and backfill specifiers with actual versions
+    let (all_packages, resolved) = build_resolved_map(&root);
+    backfill_versions(&mut deps, &resolved);
+    backfill_versions(&mut dev_deps, &resolved);
 
     Ok(DependencyGraph {
         dependencies: deps,
@@ -139,10 +182,51 @@ mod tests {
         assert_eq!(graph.lockfile_type, LockfileType::Bun);
         assert_eq!(graph.dependencies.len(), 2);
         assert!(graph.dependencies.contains_key("react"));
+        // Verify resolved versions (not specifiers)
+        assert_eq!(graph.dependencies["react"].version, "18.2.0");
+        assert_eq!(graph.dependencies["lodash"].version, "4.17.21");
+        assert_eq!(graph.dev_dependencies["typescript"].version, "5.3.3");
         assert_eq!(graph.dev_dependencies.len(), 1);
-        assert!(graph.dev_dependencies.contains_key("typescript"));
         assert_eq!(graph.all_packages["react"], vec!["18.2.0"]);
         assert_eq!(graph.all_packages["@scope/pkg"], vec!["2.0.0"]);
+    }
+
+    #[test]
+    fn test_parse_bun_lock_monorepo() {
+        let content = r#"{
+  "lockfileVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "monorepo-root",
+      "dependencies": {
+        "react": "^18.2.0"
+      }
+    },
+    "packages/app-a": {
+      "name": "app-a",
+      "dependencies": {
+        "lodash": "^4.17.21"
+      },
+      "devDependencies": {
+        "vitest": "^1.0.0"
+      }
+    }
+  },
+  "packages": {
+    "react": ["react@18.2.0"],
+    "lodash": ["lodash@4.17.21"],
+    "vitest": ["vitest@1.2.0"]
+  }
+}"#;
+        let graph = parse(content).unwrap();
+        // Root + sub-workspace deps merged
+        assert!(graph.dependencies.contains_key("react"));
+        assert!(graph.dependencies.contains_key("lodash"));
+        assert!(graph.dev_dependencies.contains_key("vitest"));
+        // Resolved versions, not specifiers
+        assert_eq!(graph.dependencies["react"].version, "18.2.0");
+        assert_eq!(graph.dependencies["lodash"].version, "4.17.21");
+        assert_eq!(graph.dev_dependencies["vitest"].version, "1.2.0");
     }
 
     #[test]

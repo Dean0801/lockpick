@@ -118,6 +118,10 @@ pub async fn run_monorepo(
         }
     };
 
+    if cfg.run_fix {
+        eprintln!("Warning: fix mode is not yet supported for monorepo workspaces");
+    }
+
     if cfg.verbose {
         eprintln!(
             "{} {} {}",
@@ -259,10 +263,10 @@ fn run_fix_mode(
         return false;
     }
 
-    match crate::fix::fix_unused(project_path, &unused_report.unused, &graph.lockfile_type) {
+    match crate::fix::fix_unused(project_path, &unused_report.unused, &graph.lockfile_type, cfg.dry_run) {
         Ok(fix_result) => {
             for name in &fix_result.removed {
-                eprintln!("{}: {}", i18n.t("fix_removing"), name);
+                eprintln!("{}: {}", i18n.t("fix_done"), name);
             }
             for (name, err) in &fix_result.failed {
                 eprintln!("{}: {} - {}", i18n.t("fix_failed"), name, err);

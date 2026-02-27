@@ -10,7 +10,7 @@ use crate::DependencyGraph;
 use crate::error::LockpickError;
 
 /// Auto-detect and parse the lockfile in the given project directory.
-/// Checks for pnpm-lock.yaml, package-lock.json, yarn.lock in that order.
+/// Checks for pnpm-lock.yaml, bun.lock, package-lock.json, yarn.lock in that order.
 pub fn detect_and_parse(project_dir: &Path) -> Result<DependencyGraph, LockpickError> {
     let candidates = [
         ("pnpm-lock.yaml", "pnpm" as &str),

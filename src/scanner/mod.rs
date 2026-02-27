@@ -30,7 +30,7 @@ pub fn discover_source_files(root: &Path) -> Result<Vec<PathBuf>, LockpickError>
     });
 
     for entry in walker {
-        let entry = entry.map_err(|e| LockpickError::Parse(format!("Walk error: {e}")))?;
+        let entry = entry.map_err(|e| LockpickError::Io(e.into()))?;
         if entry.file_type().is_file() {
             let path = entry.into_path();
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {

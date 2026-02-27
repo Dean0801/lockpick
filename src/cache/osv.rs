@@ -14,17 +14,26 @@ struct CacheEntry {
 }
 
 /// Return the default cache directory for OSV results.
+/// Falls back to the system temp directory when no user cache dir is available.
 fn default_cache_dir() -> PathBuf {
     dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from(".cache"))
+        .unwrap_or_else(|| std::env::temp_dir())
         .join("lockpick")
         .join("osv")
 }
 
-/// Sanitize package name for use as a filename.
+/// Sanitize a string for safe use in filenames: keep alphanumeric, '-', '.', '_' only.
+fn sanitize_for_filename(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' { c } else { '_' })
+        .collect()
+}
+
+/// Build a safe cache filename from package name and version.
 fn cache_filename(name: &str, version: &str) -> String {
-    let safe_name = name.replace('/', "__");
-    format!("{safe_name}@{version}.json")
+    let safe_name = sanitize_for_filename(name);
+    let safe_version = sanitize_for_filename(version);
+    format!("{safe_name}@{safe_version}.json")
 }
 
 fn now_secs() -> u64 {
@@ -63,7 +72,13 @@ fn set_to(cache_dir: &Path, name: &str, version: &str, vulns: &[Vulnerability]) 
 
 fn clear_dir(cache_dir: &Path) -> Result<(), LockpickError> {
     if cache_dir.exists() {
-        fs::remove_dir_all(cache_dir)?;
+        for entry in fs::read_dir(cache_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
+                fs::remove_file(&path)?;
+            }
+        }
     }
     Ok(())
 }
@@ -140,8 +155,13 @@ mod tests {
         let dir = tmp.path().join("osv_cache");
         set_to(&dir, "lodash", "4.17.20", &sample_vulns()).unwrap();
         assert!(dir.exists());
+        // Add a non-json file that should survive clear
+        fs::write(dir.join("keep.txt"), "keep me").unwrap();
         clear_dir(&dir).unwrap();
-        assert!(!dir.exists());
+        // Directory still exists, non-json file preserved, json files removed
+        assert!(dir.exists());
+        assert!(dir.join("keep.txt").exists());
+        assert!(!dir.join(cache_filename("lodash", "4.17.20")).exists());
     }
 
     #[test]
@@ -149,7 +169,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
         set_to(dir, "@scope/pkg", "1.0.0", &sample_vulns()).unwrap();
-        let expected_file = dir.join("@scope__pkg@1.0.0.json");
+        // '@' and '/' are sanitized to '_'
+        let expected_file = dir.join("_scope_pkg@1.0.0.json");
         assert!(expected_file.exists());
         let cached = get_from(dir, "@scope/pkg", "1.0.0", 3600).unwrap();
         assert_eq!(cached.len(), 1);

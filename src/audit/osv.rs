@@ -1,10 +1,14 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
+use tokio::time::sleep;
 
 use crate::error::LockpickError;
 use crate::{DependencyGraph, Severity, VulnReport, Vulnerability};
 
 const OSV_BATCH_URL: &str = "https://api.osv.dev/v1/querybatch";
 const OSV_BATCH_SIZE: usize = 1000;
+const MAX_RETRIES: u32 = 3;
 
 /// OSV batch query request
 #[derive(Serialize)]
@@ -72,8 +76,8 @@ struct OsvEvent {
     fixed: Option<String>,
 }
 
-/// Default cache TTL: 1 hour
-const DEFAULT_CACHE_TTL: u64 = 3600;
+/// Default cache TTL: 24 hours (matches config documentation)
+const DEFAULT_CACHE_TTL: u64 = 86400;
 
 /// Scan dependencies for known vulnerabilities via OSV.dev API
 pub async fn scan_vulnerabilities(
@@ -136,33 +140,29 @@ pub async fn scan_vulnerabilities(
         pkg_order.push((name.clone(), version.clone()));
     }
 
-    // Send queries in batches to avoid API limits
+    // Send queries in batches to avoid API limits.
+    // Failed batches are skipped with a warning so that successful results are preserved.
     let mut all_results: Vec<OsvResultEntry> = Vec::new();
-    for chunk in queries.chunks(OSV_BATCH_SIZE) {
+    for (batch_idx, chunk) in queries.chunks(OSV_BATCH_SIZE).enumerate() {
         let request = OsvBatchRequest {
             queries: chunk.to_vec(),
         };
 
-        let resp = client
-            .post(OSV_BATCH_URL)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| LockpickError::Network(format!("OSV API request failed: {e}")))?;
-
-        if !resp.status().is_success() {
-            return Err(LockpickError::Network(format!(
-                "OSV API returned status: {}",
-                resp.status()
-            )));
+        match send_batch_with_retry(&client, &request).await {
+            Ok(batch) => {
+                all_results.extend(batch.results);
+            }
+            Err(e) => {
+                eprintln!(
+                    "warning: OSV batch {} failed after retries, skipping ({e})",
+                    batch_idx + 1
+                );
+                // Fill placeholder empty entries so pkg_order indices stay aligned
+                all_results.extend(
+                    (0..chunk.len()).map(|_| OsvResultEntry { vulns: Vec::new() }),
+                );
+            }
         }
-
-        let batch: OsvBatchResponse = resp
-            .json()
-            .await
-            .map_err(|e| LockpickError::Network(format!("Failed to parse OSV response: {e}")))?;
-
-        all_results.extend(batch.results);
     }
 
     // Map fresh results back to packages and write to cache
@@ -176,7 +176,9 @@ pub async fn scan_vulnerabilities(
 
         // Write to cache (even empty results, so we don't re-query clean packages)
         if use_cache {
-            let _ = crate::cache::osv::set(name, version, &vulns);
+            if let Err(e) = crate::cache::osv::set(name, version, &vulns) {
+                eprintln!("warning: failed to write OSV cache for {name}@{version}: {e}");
+            }
         }
 
         if !vulns.is_empty() {
@@ -192,6 +194,64 @@ pub async fn scan_vulnerabilities(
     let mut reports = cached_reports;
     reports.extend(fresh_reports);
     Ok(reports)
+}
+
+/// Send a single OSV batch request with exponential backoff retry.
+/// Retries on network errors and 5xx responses; 4xx errors fail immediately.
+async fn send_batch_with_retry(
+    client: &reqwest::Client,
+    request: &OsvBatchRequest,
+) -> Result<OsvBatchResponse, LockpickError> {
+    let mut last_err = LockpickError::Network("unknown error".into());
+    let total_attempts = MAX_RETRIES + 1; // 1 initial + 3 retries
+
+    for attempt in 0..total_attempts {
+        if attempt > 0 {
+            let delay = Duration::from_secs(1 << (attempt - 1)); // 1s, 2s, 4s
+            eprintln!(
+                "warning: OSV API request failed, retrying in {}s (attempt {}/{})",
+                delay.as_secs(),
+                attempt,
+                MAX_RETRIES
+            );
+            sleep(delay).await;
+        }
+
+        let resp = match client.post(OSV_BATCH_URL).json(request).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                // Network-level error (timeout, DNS, connection reset) — retryable
+                last_err = LockpickError::Network(format!("OSV API request failed: {e}"));
+                continue;
+            }
+        };
+
+        let status = resp.status();
+
+        // 4xx client errors are not retryable
+        if status.is_client_error() {
+            return Err(LockpickError::Network(format!(
+                "OSV API returned client error: {status}"
+            )));
+        }
+
+        // 5xx server errors are retryable
+        if status.is_server_error() {
+            last_err = LockpickError::Network(format!(
+                "OSV API returned server error: {status}"
+            ));
+            continue;
+        }
+
+        // Success — parse the response body
+        let batch: OsvBatchResponse = resp.json().await.map_err(|e| {
+            LockpickError::Network(format!("Failed to parse OSV response: {e}"))
+        })?;
+
+        return Ok(batch);
+    }
+
+    Err(last_err)
 }
 
 fn convert_vuln(v: &OsvVuln) -> Vulnerability {
