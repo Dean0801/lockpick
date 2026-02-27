@@ -59,6 +59,7 @@ impl I18n {
                 "duplicate_deps" => "重复依赖",
                 "versions" => "版本列表",
                 "no_duplicates" => "未发现重复依赖",
+                "scan_config_complete" => "配置文件和脚本扫描完成",
                 _ => key,
             },
             Lang::En => match key {
@@ -88,6 +89,7 @@ impl I18n {
                 "duplicate_deps" => "Duplicate Dependencies",
                 "versions" => "Versions",
                 "no_duplicates" => "No duplicate dependencies found",
+                "scan_config_complete" => "Config and scripts scan complete",
                 _ => key,
             },
         }

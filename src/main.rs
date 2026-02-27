@@ -133,6 +133,25 @@ async fn main() {
             }
         }
 
+        // Scan config files for plugin references
+        let config_deps = lockpick::scanner::config::extract_config_deps(&project_path);
+        used.extend(config_deps);
+
+        // Scan extra config files from .lockpickrc
+        let extra_deps = lockpick::scanner::config::extract_extra_config_deps(
+            &project_path,
+            &rc_config.extra_configs,
+        );
+        used.extend(extra_deps);
+
+        // Scan package.json scripts for CLI tool references
+        let script_deps = lockpick::scanner::scripts::extract_script_deps(&project_path);
+        used.extend(script_deps);
+
+        if cli.verbose {
+            eprintln!("{}", i18n.t("scan_config_complete"));
+        }
+
         let mut report = lockpick::scanner::unused::detect_unused(&graph, &used, effective_no_dev);
 
         // Apply --ignore filter
