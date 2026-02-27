@@ -5,6 +5,7 @@ pub mod i18n;
 pub mod lockfile;
 pub mod report;
 pub mod scanner;
+pub mod workspace;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
