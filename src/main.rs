@@ -168,14 +168,8 @@ async fn main() {
     }
 
     // Determine exit code for CI
-    let has_unused = result
-        .unused
-        .as_ref()
-        .is_some_and(|u| !u.unused.is_empty());
-    let has_vulns = result
-        .vulns
-        .as_ref()
-        .is_some_and(|v| !v.is_empty());
+    let has_unused = result.unused.as_ref().is_some_and(|u| !u.unused.is_empty());
+    let has_vulns = result.vulns.as_ref().is_some_and(|v| !v.is_empty());
 
     if has_unused || has_vulns {
         std::process::exit(1);

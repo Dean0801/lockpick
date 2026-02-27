@@ -119,11 +119,11 @@ fn extract_from_statement<'a>(stmt: &'a Statement<'a>, packages: &mut HashSet<St
     }
 
     // Function declarations: recurse into body
-    if let Statement::FunctionDeclaration(func) = stmt {
-        if let Some(body) = &func.body {
-            for inner_stmt in &body.statements {
-                extract_from_statement(inner_stmt, packages);
-            }
+    if let Statement::FunctionDeclaration(func) = stmt
+        && let Some(body) = &func.body
+    {
+        for inner_stmt in &body.statements {
+            extract_from_statement(inner_stmt, packages);
         }
     }
 }
@@ -142,23 +142,19 @@ fn extract_module_source<'a>(stmt: &'a Statement<'a>) -> Option<&'a str> {
 fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<String>) {
     match expr {
         Expression::CallExpression(call) => {
-            if let Expression::Identifier(id) = &call.callee {
-                if id.name == "require" {
-                    if let Some(first_arg) = call.arguments.first() {
-                        if let Argument::StringLiteral(lit) = first_arg {
-                            if let Some(pkg) = normalize_package_name(lit.value.as_str()) {
-                                packages.insert(pkg);
-                            }
-                        }
-                    }
-                }
+            if let Expression::Identifier(id) = &call.callee
+                && id.name == "require"
+                && let Some(Argument::StringLiteral(lit)) = call.arguments.first()
+                && let Some(pkg) = normalize_package_name(lit.value.as_str())
+            {
+                packages.insert(pkg);
             }
         }
         Expression::ImportExpression(imp) => {
-            if let Expression::StringLiteral(lit) = &imp.source {
-                if let Some(pkg) = normalize_package_name(lit.value.as_str()) {
-                    packages.insert(pkg);
-                }
+            if let Expression::StringLiteral(lit) = &imp.source
+                && let Some(pkg) = normalize_package_name(lit.value.as_str())
+            {
+                packages.insert(pkg);
             }
         }
         Expression::AwaitExpression(await_expr) => {
