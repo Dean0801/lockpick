@@ -11,6 +11,7 @@ impl Reporter for TerminalReporter {
     fn report(&self, result: &AnalysisResult, i18n: &I18n) -> Result<(), String> {
         print_unused(result, i18n);
         print_vulns(result, i18n);
+        print_duplicates(result, i18n);
         print_size(result, i18n);
         println!("\n{}", i18n.t("scan_complete").green());
         Ok(())
@@ -90,6 +91,35 @@ fn print_vulns(result: &AnalysisResult, i18n: &I18n) {
             let fix = vuln.fixed_version.as_deref().unwrap_or(i18n.t("none"));
             table.add_row(vec![&report.package, &report.version, &sev, fix]);
         }
+    }
+
+    println!("{table}");
+}
+
+fn print_duplicates(result: &AnalysisResult, i18n: &I18n) {
+    let Some(ref dups) = result.duplicates else {
+        return;
+    };
+
+    if dups.duplicates.is_empty() {
+        println!("\n{}", i18n.t("no_duplicates").green());
+        return;
+    }
+
+    println!(
+        "\n{} {} ({} {})",
+        "🔀".bold(),
+        i18n.t("duplicate_deps").bold(),
+        dups.total_duplicate_packages,
+        i18n.t("found")
+    );
+
+    let mut table = Table::new();
+    table.set_content_arrangement(ContentArrangement::Dynamic);
+    table.set_header(vec![i18n.t("package"), i18n.t("versions")]);
+
+    for dup in &dups.duplicates {
+        table.add_row(vec![&dup.name, &dup.versions.join(", ")]);
     }
 
     println!("{table}");

@@ -56,6 +56,9 @@ impl I18n {
                 "size_analysis" => "依赖体积分析",
                 "total_size" => "总计",
                 "size" => "体积",
+                "duplicate_deps" => "重复依赖",
+                "versions" => "版本列表",
+                "no_duplicates" => "未发现重复依赖",
                 _ => key,
             },
             Lang::En => match key {
@@ -82,6 +85,9 @@ impl I18n {
                 "size_analysis" => "Dependency Size Analysis",
                 "total_size" => "Total",
                 "size" => "Size",
+                "duplicate_deps" => "Duplicate Dependencies",
+                "versions" => "Versions",
+                "no_duplicates" => "No duplicate dependencies found",
                 _ => key,
             },
         }
