@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+use lockpick::config::load_config;
 use lockpick::i18n::I18n;
 use lockpick::report::{Reporter, json::JsonReporter, terminal::TerminalReporter};
 
@@ -62,15 +63,32 @@ enum LangOption {
 async fn main() {
     let cli = Cli::parse();
 
-    // Detect language
-    let lang_str = cli.lang.as_ref().map(|l| match l {
-        LangOption::En => "en",
-        LangOption::Zh => "zh",
-    });
+    // Load .lockpickrc config
+    let project_path = cli.path.clone().unwrap_or_else(|| PathBuf::from("."));
+    let rc_config = load_config(&project_path);
+
+    // Merge: CLI args override .lockpickrc
+    let effective_no_dev = cli.no_dev || rc_config.skip_dev;
+
+    let effective_ignore: Vec<String> = {
+        let mut merged = rc_config.ignore.clone();
+        merged.extend(cli.ignore.clone());
+        merged.sort();
+        merged.dedup();
+        merged
+    };
+
+    // Detect language: CLI > .lockpickrc > env > default
+    let lang_str = cli
+        .lang
+        .as_ref()
+        .map(|l| match l {
+            LangOption::En => "en",
+            LangOption::Zh => "zh",
+        })
+        .or(rc_config.lang.as_deref());
     let i18n = I18n::detect(lang_str);
 
-    // Resolve project path
-    let project_path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     if !project_path.exists() {
         eprintln!("Error: path '{}' does not exist", project_path.display());
         std::process::exit(1);
@@ -115,11 +133,11 @@ async fn main() {
             }
         }
 
-        let mut report = lockpick::scanner::unused::detect_unused(&graph, &used, cli.no_dev);
+        let mut report = lockpick::scanner::unused::detect_unused(&graph, &used, effective_no_dev);
 
         // Apply --ignore filter
-        if !cli.ignore.is_empty() {
-            report.unused.retain(|dep| !cli.ignore.contains(&dep.name));
+        if !effective_ignore.is_empty() {
+            report.unused.retain(|dep| !effective_ignore.contains(&dep.name));
         }
 
         Some(report)
