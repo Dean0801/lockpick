@@ -60,6 +60,10 @@ impl I18n {
                 "versions" => "版本列表",
                 "no_duplicates" => "未发现重复依赖",
                 "scan_config_complete" => "配置文件和脚本扫描完成",
+                "monorepo_detected" => "检测到 monorepo，共",
+                "workspace_packages" => "个工作区包",
+                "workspace_package" => "工作区包",
+                "skip_no_deps" => "跳过（无依赖声明）",
                 _ => key,
             },
             Lang::En => match key {
@@ -90,6 +94,10 @@ impl I18n {
                 "versions" => "Versions",
                 "no_duplicates" => "No duplicate dependencies found",
                 "scan_config_complete" => "Config and scripts scan complete",
+                "monorepo_detected" => "Monorepo detected,",
+                "workspace_packages" => "workspace packages",
+                "workspace_package" => "Workspace package",
+                "skip_no_deps" => "Skipped (no dependencies declared)",
                 _ => key,
             },
         }

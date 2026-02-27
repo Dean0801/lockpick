@@ -59,6 +59,47 @@ enum LangOption {
     Zh,
 }
 
+/// Read package.json dependencies and devDependencies
+fn read_package_deps(pkg_dir: &std::path::Path) -> Option<(
+    std::collections::HashMap<String, lockpick::PackageInfo>,
+    std::collections::HashMap<String, lockpick::PackageInfo>,
+)> {
+    let pkg_path = pkg_dir.join("package.json");
+    let content = std::fs::read_to_string(&pkg_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let mut deps = std::collections::HashMap::new();
+    let mut dev_deps = std::collections::HashMap::new();
+
+    if let Some(obj) = json.get("dependencies").and_then(|d| d.as_object()) {
+        for (name, version) in obj {
+            deps.insert(
+                name.clone(),
+                lockpick::PackageInfo {
+                    name: name.clone(),
+                    version: version.as_str().unwrap_or("*").to_string(),
+                    integrity: None,
+                },
+            );
+        }
+    }
+
+    if let Some(obj) = json.get("devDependencies").and_then(|d| d.as_object()) {
+        for (name, version) in obj {
+            dev_deps.insert(
+                name.clone(),
+                lockpick::PackageInfo {
+                    name: name.clone(),
+                    version: version.as_str().unwrap_or("*").to_string(),
+                    integrity: None,
+                },
+            );
+        }
+    }
+
+    Some((deps, dev_deps))
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -113,6 +154,144 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // Create reporter early (needed for both monorepo and single-package flows)
+    let reporter: Box<dyn Reporter> = match cli.format {
+        OutputFormat::Terminal => Box::new(TerminalReporter),
+        OutputFormat::Json => Box::new(JsonReporter),
+    };
+
+    // Check if monorepo
+    if lockpick::workspace::is_monorepo(&project_path) {
+        let workspace_packages = match lockpick::workspace::detect_workspaces(&project_path) {
+            Ok(pkgs) => pkgs,
+            Err(e) => {
+                eprintln!("Error detecting workspaces: {e}");
+                std::process::exit(1);
+            }
+        };
+
+        if cli.verbose {
+            eprintln!(
+                "{} {} {}",
+                i18n.t("monorepo_detected"),
+                workspace_packages.len(),
+                i18n.t("workspace_packages")
+            );
+        }
+
+        let mut all_has_unused = false;
+
+        for pkg_dir in &workspace_packages {
+            let pkg_name = pkg_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            eprintln!("\n--- {} {} ---", i18n.t("workspace_package"), pkg_name);
+
+            let (pkg_deps, pkg_dev_deps) = match read_package_deps(pkg_dir) {
+                Some(d) => d,
+                None => {
+                    eprintln!("  {}", i18n.t("skip_no_deps"));
+                    continue;
+                }
+            };
+
+            let pkg_graph = lockpick::DependencyGraph {
+                dependencies: pkg_deps,
+                dev_dependencies: pkg_dev_deps,
+                lockfile_type: graph.lockfile_type.clone(),
+                all_packages: graph.all_packages.clone(),
+            };
+
+            if run_unused {
+                let files = match lockpick::scanner::discover_source_files(pkg_dir) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("  Error scanning {pkg_name}: {e}");
+                        continue;
+                    }
+                };
+
+                let mut used = std::collections::HashSet::new();
+                for file in &files {
+                    if let Ok(source) = std::fs::read_to_string(file) {
+                        let imports =
+                            lockpick::scanner::imports::extract_imports_from_source(&source, file);
+                        used.extend(imports);
+                    }
+                }
+
+                let config_deps = lockpick::scanner::config::extract_config_deps(pkg_dir);
+                used.extend(config_deps);
+
+                let script_deps = lockpick::scanner::scripts::extract_script_deps(pkg_dir);
+                used.extend(script_deps);
+
+                let mut report = lockpick::scanner::unused::detect_unused(
+                    &pkg_graph,
+                    &used,
+                    effective_no_dev,
+                );
+
+                if !effective_ignore.is_empty() {
+                    report
+                        .unused
+                        .retain(|dep| !effective_ignore.contains(&dep.name));
+                }
+
+                if !report.unused.is_empty() {
+                    all_has_unused = true;
+                }
+
+                let pkg_result = lockpick::AnalysisResult {
+                    unused: Some(report),
+                    vulns: None,
+                    duplicates: None,
+                    size: None,
+                };
+
+                if let Err(e) = reporter.report(&pkg_result, &i18n) {
+                    eprintln!("Report error: {e}");
+                }
+            }
+        }
+
+        // Vulnerability scan at root level (shared lockfile)
+        let vulns = if run_audit {
+            match lockpick::audit::osv::scan_vulnerabilities(&graph).await {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    eprintln!("{}: {e}", i18n.t("network_error"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let has_vulns = vulns.as_ref().is_some_and(|v| !v.is_empty());
+
+        if let Some(ref v) = vulns {
+            let vuln_result = lockpick::AnalysisResult {
+                unused: None,
+                vulns: Some(v.clone()),
+                duplicates: None,
+                size: None,
+            };
+            if let Err(e) = reporter.report(&vuln_result, &i18n) {
+                eprintln!("Report error: {e}");
+            }
+        }
+
+        if all_has_unused || has_vulns {
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    // --- Single package flow continues below (existing code) ---
 
     // Unused detection
     let unused = if run_unused {
@@ -192,11 +371,6 @@ async fn main() {
         vulns,
         duplicates,
         size,
-    };
-
-    let reporter: Box<dyn Reporter> = match cli.format {
-        OutputFormat::Terminal => Box::new(TerminalReporter),
-        OutputFormat::Json => Box::new(JsonReporter),
     };
 
     if let Err(e) = reporter.report(&result, &i18n) {
