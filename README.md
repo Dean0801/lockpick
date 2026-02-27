@@ -7,6 +7,10 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 ## Features
 
 - **Unused dependency detection** — Parses JS/TS source files with [oxc](https://oxc.rs) to find packages you declared but never imported
+- **Config file awareness** — Scans ESLint, Babel, PostCSS, Vite, Next.js, Webpack, Tailwind config files to detect plugin references
+- **Scripts awareness** — Parses `package.json` scripts to detect CLI tools (e.g. `tsc` → `typescript`)
+- **Monorepo support** — Detects pnpm/npm/yarn workspaces and analyzes each package independently
+- **Project config (.lockpickrc)** — JSON/YAML config file for persistent ignore rules, language, and extra config paths
 - **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs across all your dependencies
 - **Duplicate detection** — Finds packages with multiple versions installed in your lockfile
 - **Size analysis** — Measures the disk size of each dependency in `node_modules`
@@ -68,15 +72,34 @@ lockpick --ignore react --ignore lodash
 | package-lock.json (v3) | ✅ Supported |
 | yarn.lock (v1) | ✅ Supported |
 
+## Configuration (.lockpickrc)
+
+Create a `.lockpickrc.json` or `.lockpickrc.yaml` in your project root:
+
+```json
+{
+  "ignore": ["husky", "lint-staged"],
+  "skip_dev": false,
+  "lang": "zh",
+  "extra_configs": ["jest.config.ts"]
+}
+```
+
+CLI arguments override config file settings.
+
 ## How It Works
 
-1. Auto-detect and parse lockfile (pnpm-lock.yaml / package-lock.json / yarn.lock)
-2. Scan JS/TS source files using [oxc_parser](https://crates.io/crates/oxc_parser) to extract imports (`import`, `require()`, `import()`)
-3. Compare declared dependencies vs actual imports to find unused packages
-4. Detect duplicate packages with multiple versions in the lockfile
-5. Measure dependency sizes in `node_modules`
-6. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities
-7. Output results as colored terminal tables or JSON
+1. Load `.lockpickrc` config (if present) and merge with CLI args
+2. Auto-detect and parse lockfile (pnpm-lock.yaml / package-lock.json / yarn.lock)
+3. Detect monorepo workspaces (pnpm/npm/yarn) — analyze each package independently
+4. Scan JS/TS source files using [oxc_parser](https://crates.io/crates/oxc_parser) to extract imports (`import`, `require()`, `import()`)
+5. Scan config files (ESLint, Vite, Babel, PostCSS, etc.) for plugin references
+6. Scan `package.json` scripts for CLI tool usage
+7. Compare declared dependencies vs actual usage to find unused packages
+8. Detect duplicate packages with multiple versions in the lockfile
+9. Measure dependency sizes in `node_modules`
+10. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities
+11. Output results as colored terminal tables or JSON
 
 ## Environment Variables
 

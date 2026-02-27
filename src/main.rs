@@ -60,7 +60,9 @@ enum LangOption {
 }
 
 /// Read package.json dependencies and devDependencies
-fn read_package_deps(pkg_dir: &std::path::Path) -> Option<(
+fn read_package_deps(
+    pkg_dir: &std::path::Path,
+) -> Option<(
     std::collections::HashMap<String, lockpick::PackageInfo>,
     std::collections::HashMap<String, lockpick::PackageInfo>,
 )> {
@@ -229,11 +231,8 @@ async fn main() {
                 let script_deps = lockpick::scanner::scripts::extract_script_deps(pkg_dir);
                 used.extend(script_deps);
 
-                let mut report = lockpick::scanner::unused::detect_unused(
-                    &pkg_graph,
-                    &used,
-                    effective_no_dev,
-                );
+                let mut report =
+                    lockpick::scanner::unused::detect_unused(&pkg_graph, &used, effective_no_dev);
 
                 if !effective_ignore.is_empty() {
                     report
@@ -335,7 +334,9 @@ async fn main() {
 
         // Apply --ignore filter
         if !effective_ignore.is_empty() {
-            report.unused.retain(|dep| !effective_ignore.contains(&dep.name));
+            report
+                .unused
+                .retain(|dep| !effective_ignore.contains(&dep.name));
         }
 
         Some(report)

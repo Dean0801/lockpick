@@ -80,8 +80,8 @@ pub fn detect_workspaces(project_root: &Path) -> Result<Vec<PathBuf>, String> {
         let full_pattern = project_root.join(pattern).join("package.json");
         let pattern_str = full_pattern.to_string_lossy().to_string();
 
-        let entries = glob(&pattern_str)
-            .map_err(|e| format!("Invalid glob pattern '{pattern}': {e}"))?;
+        let entries =
+            glob(&pattern_str).map_err(|e| format!("Invalid glob pattern '{pattern}': {e}"))?;
 
         for entry in entries.flatten() {
             if let Some(parent) = entry.parent() {
@@ -216,11 +216,7 @@ mod tests {
     #[test]
     fn test_detect_workspaces_no_config() {
         let tmp = TempDir::new().unwrap();
-        fs::write(
-            tmp.path().join("package.json"),
-            r#"{"name": "solo"}"#,
-        )
-        .unwrap();
+        fs::write(tmp.path().join("package.json"), r#"{"name": "solo"}"#).unwrap();
 
         let result = detect_workspaces(tmp.path());
         assert!(result.is_err());

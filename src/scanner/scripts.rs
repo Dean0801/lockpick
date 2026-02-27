@@ -35,8 +35,8 @@ fn cli_to_package_map() -> HashMap<&'static str, &'static str> {
 
 /// Commands that are runners/shells and should be skipped when extracting the real tool.
 const SKIP_COMMANDS: &[&str] = &[
-    "node", "npx", "npm", "yarn", "pnpm", "run", "exec", "env", "sh", "bash", "echo", "cd",
-    "rm", "cp", "mkdir", "cat", "exit", "true", "false", "test",
+    "node", "npx", "npm", "yarn", "pnpm", "run", "exec", "env", "sh", "bash", "echo", "cd", "rm",
+    "cp", "mkdir", "cat", "exit", "true", "false", "test",
 ];
 
 /// Extract the first meaningful command token from a script value.
@@ -125,10 +125,7 @@ mod tests {
 
     #[test]
     fn test_extract_command_npm_run() {
-        assert_eq!(
-            extract_command("npm run build"),
-            Some("build".to_string())
-        );
+        assert_eq!(extract_command("npm run build"), Some("build".to_string()));
     }
 
     #[test]

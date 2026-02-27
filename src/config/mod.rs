@@ -82,16 +82,8 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        fs::write(
-            dir.join(".lockpickrc.json"),
-            r#"{"ignore": ["from-json"]}"#,
-        )
-        .unwrap();
-        fs::write(
-            dir.join(".lockpickrc.yaml"),
-            "ignore:\n  - from-yaml\n",
-        )
-        .unwrap();
+        fs::write(dir.join(".lockpickrc.json"), r#"{"ignore": ["from-json"]}"#).unwrap();
+        fs::write(dir.join(".lockpickrc.yaml"), "ignore:\n  - from-yaml\n").unwrap();
 
         let config = load_config(&dir);
         assert_eq!(config.ignore, vec!["from-json"]);

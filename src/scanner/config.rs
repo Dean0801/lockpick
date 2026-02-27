@@ -55,10 +55,7 @@ pub fn extract_js_config_deps(project_root: &Path) -> HashSet<String> {
 }
 
 /// Scan extra config files specified by user in .lockpickrc
-pub fn extract_extra_config_deps(
-    project_root: &Path,
-    extra_configs: &[String],
-) -> HashSet<String> {
+pub fn extract_extra_config_deps(project_root: &Path, extra_configs: &[String]) -> HashSet<String> {
     let mut deps = HashSet::new();
 
     for filename in extra_configs {
@@ -90,7 +87,12 @@ const JSON_CONFIG_RULES: &[JsonConfigRule] = &[
     JsonConfigRule {
         filenames: &[".babelrc", ".babelrc.json"],
         fields: &["presets", "plugins"],
-        prefixes: &["babel-plugin-", "babel-preset-", "@babel/plugin-", "@babel/preset-"],
+        prefixes: &[
+            "babel-plugin-",
+            "babel-preset-",
+            "@babel/plugin-",
+            "@babel/preset-",
+        ],
     },
     JsonConfigRule {
         filenames: &[".postcssrc", ".postcssrc.json"],
@@ -407,11 +409,7 @@ export default defineConfig({ plugins: [react()] });
         )
         .unwrap();
 
-        fs::write(
-            dir.join(".eslintrc.json"),
-            r#"{"plugins": ["react"]}"#,
-        )
-        .unwrap();
+        fs::write(dir.join(".eslintrc.json"), r#"{"plugins": ["react"]}"#).unwrap();
 
         let deps = extract_config_deps(&dir);
         assert!(deps.contains("@vitejs/plugin-react"));
