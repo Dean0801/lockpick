@@ -2,12 +2,18 @@
 
 > Blazing-fast JS/TS dependency analyzer CLI, built with Rust.
 
-Analyze your pnpm project's dependencies in milliseconds — detect unused packages and scan for known vulnerabilities.
+Analyze your JS/TS project's dependencies in milliseconds — detect unused packages, scan for vulnerabilities, find duplicates, and measure dependency sizes.
 
 ## Features
 
 - **Unused dependency detection** — Parses JS/TS source files with [oxc](https://oxc.rs) to find packages you declared but never imported
 - **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs across all your dependencies
+- **Duplicate detection** — Finds packages with multiple versions installed in your lockfile
+- **Size analysis** — Measures the disk size of each dependency in `node_modules`
+- **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, package-lock.json, and yarn.lock
+- **ESM + CJS + dynamic import** — Handles `import`, `require()`, and `import()` syntax
+- **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found
+- **Smart @types association** — `@types/react` won't be flagged as unused if `react` is imported
 - **Fast** — Native Rust binary, no Node.js runtime needed
 - **Bilingual** — English and Chinese output (`--lang zh`)
 - **Multiple output formats** — Terminal (colored tables) or JSON
@@ -59,16 +65,18 @@ lockpick --ignore react --ignore lodash
 | Lockfile | Status |
 |----------|--------|
 | pnpm-lock.yaml (v9) | ✅ Supported |
-| package-lock.json | 🔜 Planned |
-| yarn.lock | 🔜 Planned |
+| package-lock.json (v3) | ✅ Supported |
+| yarn.lock (v1) | ✅ Supported |
 
 ## How It Works
 
-1. Parse `pnpm-lock.yaml` to build a dependency graph
-2. Scan JS/TS source files using [oxc_parser](https://crates.io/crates/oxc_parser) to extract imports
+1. Auto-detect and parse lockfile (pnpm-lock.yaml / package-lock.json / yarn.lock)
+2. Scan JS/TS source files using [oxc_parser](https://crates.io/crates/oxc_parser) to extract imports (`import`, `require()`, `import()`)
 3. Compare declared dependencies vs actual imports to find unused packages
-4. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities
-5. Output results as colored terminal tables or JSON
+4. Detect duplicate packages with multiple versions in the lockfile
+5. Measure dependency sizes in `node_modules`
+6. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities
+7. Output results as colored terminal tables or JSON
 
 ## Environment Variables
 
