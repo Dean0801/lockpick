@@ -1,0 +1,11 @@
+{
+  "name": "lockpick-cli-linux-arm64-gnu",
+  "version": "0.6.0",
+  "description": "lockpick-cli binary for Linux ARM64 (glibc)",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Dean0801/lockpick" },
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "files": ["lockpick"]
+}

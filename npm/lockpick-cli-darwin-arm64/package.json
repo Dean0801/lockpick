@@ -1,0 +1,10 @@
+{
+  "name": "lockpick-cli-darwin-arm64",
+  "version": "0.6.0",
+  "description": "lockpick-cli binary for macOS ARM64",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Dean0801/lockpick" },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["lockpick"]
+}

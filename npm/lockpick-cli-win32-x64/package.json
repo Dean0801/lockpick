@@ -1,0 +1,10 @@
+{
+  "name": "lockpick-cli-win32-x64",
+  "version": "0.6.0",
+  "description": "lockpick-cli binary for Windows x64",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Dean0801/lockpick" },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["lockpick.exe"]
+}

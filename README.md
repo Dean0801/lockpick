@@ -30,11 +30,18 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 
 ## Installation
 
+### npm / pnpm / yarn
+
 ```bash
-cargo install lockpick
+npm install -D lockpick-cli
+pnpm add -D lockpick-cli
+yarn add -D lockpick-cli
+
+# Or run directly
+npx lockpick-cli
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/Dean0801/lockpick.git

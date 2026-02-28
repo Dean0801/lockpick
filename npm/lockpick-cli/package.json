@@ -1,0 +1,26 @@
+{
+  "name": "lockpick-cli",
+  "version": "0.6.0",
+  "description": "Blazing-fast JS/TS dependency analyzer CLI, built with Rust",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dean0801/lockpick"
+  },
+  "bin": {
+    "lockpick": "bin/lockpick.js"
+  },
+  "files": ["bin"],
+  "optionalDependencies": {
+    "lockpick-cli-darwin-arm64": "0.6.0",
+    "lockpick-cli-darwin-x64": "0.6.0",
+    "lockpick-cli-linux-x64-gnu": "0.6.0",
+    "lockpick-cli-linux-x64-musl": "0.6.0",
+    "lockpick-cli-linux-arm64-gnu": "0.6.0",
+    "lockpick-cli-win32-x64": "0.6.0"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "keywords": ["pnpm", "npm", "yarn", "dependency", "analyzer", "security", "audit"]
+}
