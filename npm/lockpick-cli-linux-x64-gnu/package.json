@@ -1,6 +1,6 @@
 {
   "name": "lockpick-cli-linux-x64-gnu",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "lockpick-cli binary for Linux x64 (glibc)",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/Dean0801/lockpick" },
