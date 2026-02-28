@@ -18,11 +18,13 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 - **Auto-fix** — `lockpick fix` removes unused dependencies via your package manager (supports `--dry-run`)
 - **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, bun.lock, package-lock.json, and yarn.lock
 - **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions)
-- **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found
+- **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found; supports `--fail-on` threshold and `.lockpickrc` thresholds for fine-grained CI gating
 - **Smart @types association** — `@types/react` won't be flagged as unused if `react` is imported
+- **Dependency tree** — `lockpick tree` visualizes the full dependency graph (terminal, DOT, JSON, Mermaid), with `--focus` and `--depth`
+- **Diff comparison** — `lockpick diff <baseline.json>` compares current state against a baseline, showing new and resolved issues
 - **Fast** — Native Rust binary, no Node.js runtime needed
 - **Bilingual** — English and Chinese output (`--lang zh`)
-- **Multiple output formats** — Terminal (colored tables) or JSON
+- **Multiple output formats** — Terminal (colored tables), JSON, or Markdown (`--output <file>` to write to file)
 
 ## Installation
 
@@ -73,6 +75,25 @@ lockpick fix --dry-run
 
 # Disable vulnerability cache
 lockpick audit --no-cache
+
+# Markdown report to file
+lockpick --format markdown --output report.md
+
+# Dependency tree visualization
+lockpick tree
+lockpick tree --format dot          # Graphviz DOT
+lockpick tree --format mermaid      # Mermaid diagram
+lockpick tree --focus react         # Focus on a package
+lockpick tree --depth 2             # Limit depth
+
+# Diff against baseline
+lockpick --format json --output baseline.json   # Save baseline
+lockpick diff baseline.json                      # Compare later
+lockpick diff baseline.json --format markdown    # Markdown diff
+
+# CI threshold gate
+lockpick --fail-on critical         # Fail on critical vulns only
+lockpick --fail-on any              # Fail on any issue
 ```
 
 ## Supported Lockfiles
@@ -98,7 +119,14 @@ Create a `.lockpickrc.json` or `.lockpickrc.yaml` in your project root:
     "allow": ["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"],
     "deny": ["GPL-3.0"]
   },
-  "cache_ttl": 7200
+  "cache_ttl": 7200,
+  "thresholds": {
+    "max_critical": 0,
+    "max_high": 5,
+    "max_unused": 10,
+    "max_duplicates": -1,
+    "fail_on_license": true
+  }
 }
 ```
 
@@ -117,7 +145,7 @@ CLI arguments override config file settings.
 9. Measure dependency sizes in `node_modules`
 10. Extract license info and check against allow/deny policy
 11. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities (with local file cache)
-12. Output results as colored terminal tables or JSON
+12. Output results as colored terminal tables, JSON, or Markdown
 
 ## Environment Variables
 
