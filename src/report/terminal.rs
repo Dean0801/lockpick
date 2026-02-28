@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 use super::Reporter;
 use crate::error::LockpickError;
 use crate::i18n::I18n;
-use crate::{AnalysisResult, DepType, Severity, ViolationReason};
+use crate::{AnalysisResult, DepType, Severity, SupplyChainRiskType, ViolationReason};
 
 pub struct TerminalReporter;
 
@@ -15,6 +15,8 @@ impl Reporter for TerminalReporter {
         print_duplicates(result, i18n);
         print_size(result, i18n);
         print_license(result, i18n);
+        print_outdated(result, i18n);
+        print_supply_chain(result, i18n);
         println!("\n{}", i18n.t("scan_complete").green());
         Ok(())
     }
@@ -232,5 +234,90 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
         format!("{} B", bytes)
+    }
+}
+
+fn print_outdated(result: &AnalysisResult, i18n: &I18n) {
+    let Some(ref report) = result.outdated else {
+        return;
+    };
+    if report.entries.is_empty() {
+        println!("\n{}", i18n.t("no_outdated").green());
+        return;
+    }
+
+    println!(
+        "\n{} {} ({})",
+        "📦".bold(),
+        i18n.t("outdated_deps").bold(),
+        report.total_outdated,
+    );
+
+    let mut table = Table::new();
+    table.set_content_arrangement(ContentArrangement::Dynamic);
+    table.set_header(vec![
+        i18n.t("package"),
+        i18n.t("current"),
+        i18n.t("latest"),
+        i18n.t("level"),
+        i18n.t("priority"),
+    ]);
+
+    for e in &report.entries {
+        let level = format!("{:?}", e.level);
+        let priority = match e.priority {
+            crate::UpgradePriority::Critical => format!("🔴 {}", i18n.t("critical").red()),
+            crate::UpgradePriority::High => format!("🟡 {}", i18n.t("high").yellow()),
+            crate::UpgradePriority::Medium => format!("🟠 {}", i18n.t("medium").cyan()),
+            crate::UpgradePriority::Low => format!("⚪ {}", i18n.t("low")),
+        };
+        table.add_row(vec![&e.name, &e.current, &e.latest, &level, &priority]);
+    }
+    println!("{table}");
+    println!(
+        "  {}: {} patch | {} minor | {} major",
+        i18n.t("summary"),
+        report.patch_count,
+        report.minor_count,
+        report.major_count
+    );
+}
+
+fn print_supply_chain(result: &AnalysisResult, i18n: &I18n) {
+    let Some(ref report) = result.supply_chain else {
+        return;
+    };
+    if report.risks.is_empty() {
+        println!("\n{}", i18n.t("no_supply_chain_risks").green());
+        return;
+    }
+
+    println!(
+        "\n{} {} ({} {})",
+        "🔗".bold(),
+        i18n.t("supply_chain_analysis").bold(),
+        report.risks.len(),
+        i18n.t("found"),
+    );
+
+    for risk in &report.risks {
+        let sev = match risk.severity {
+            Severity::Critical | Severity::High => format!("🔴 {}", i18n.t("high").red()),
+            Severity::Medium => format!("🟡 {}", i18n.t("medium").yellow()),
+            Severity::Low => format!("⚪ {}", i18n.t("low")),
+        };
+        let desc = match &risk.risk_type {
+            SupplyChainRiskType::Typosquat {
+                similar_to,
+                distance,
+            } => format!("similar to \"{}\" (distance: {})", similar_to, distance),
+            SupplyChainRiskType::ScopeConfusion { legitimate } => {
+                format!("may impersonate \"{}\"", legitimate)
+            }
+            SupplyChainRiskType::VersionAnomaly { installed_version } => {
+                format!("abnormal version ({})", installed_version)
+            }
+        };
+        println!("  ⚠️  {}@{} → {} {}", risk.package, risk.version, desc, sev);
     }
 }

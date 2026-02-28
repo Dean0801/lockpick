@@ -56,6 +56,10 @@ struct Cli {
     /// Exit code strategy: critical | high | any
     #[arg(long, global = true)]
     fail_on: Option<FailLevel>,
+
+    /// Custom npm registry URL
+    #[arg(long, global = true)]
+    registry: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -88,6 +92,17 @@ enum Commands {
         #[arg(short, long, default_value = "terminal")]
         format: DiffFormat,
     },
+    /// Check for outdated dependencies
+    Outdated {
+        /// Skip vulnerability correlation
+        #[arg(long)]
+        no_audit: bool,
+        /// Filter by semver level: patch | minor | major
+        #[arg(long)]
+        level: Option<SemverLevelFilter>,
+    },
+    /// Supply chain security analysis
+    SupplyChain,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -122,6 +137,13 @@ enum FailLevel {
 enum LangOption {
     En,
     Zh,
+}
+
+#[derive(Clone, ValueEnum)]
+enum SemverLevelFilter {
+    Patch,
+    Minor,
+    Major,
 }
 
 #[tokio::main]
@@ -165,7 +187,12 @@ async fn main() -> ExitCode {
     }
 
     // Handle tree subcommand (separate pipeline with dep_edges)
-    if let Some(Commands::Tree { format, focus, depth }) = &cli.command {
+    if let Some(Commands::Tree {
+        format,
+        focus,
+        depth,
+    }) = &cli.command
+    {
         let graph = match lockpick::lockfile::detect_and_parse_with_edges(&project_path) {
             Ok(g) => g,
             Err(e) => {
@@ -234,12 +261,103 @@ async fn main() -> ExitCode {
         return write_output(&cli.output, &out);
     }
 
+    // Handle outdated subcommand
+    if let Some(Commands::Outdated { no_audit, level }) = &cli.command {
+        let vulns = if *no_audit {
+            None
+        } else {
+            lockpick::runner::run_audit(&graph, rc_config.cache_ttl, cli.no_cache, &i18n).await
+        };
+        let registry_url = cli.registry.as_deref().or(rc_config.registry.as_deref());
+        let report = match lockpick::outdated::check_outdated(
+            &graph,
+            vulns.as_deref(),
+            cli.no_dev || rc_config.skip_dev,
+            registry_url,
+            cli.no_cache,
+            rc_config.cache_ttl,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Error: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let result = lockpick::AnalysisResult {
+            unused: None,
+            vulns: None,
+            duplicates: None,
+            size: None,
+            license: None,
+            outdated: Some(filter_outdated(report, level)),
+            supply_chain: None,
+        };
+        let effective_format = cli.format.unwrap_or(match rc_config.format {
+            Some(lockpick::config::types::OutputFormatConfig::Json) => OutputFormat::Json,
+            Some(lockpick::config::types::OutputFormatConfig::Markdown) => OutputFormat::Markdown,
+            _ => OutputFormat::Terminal,
+        });
+        let reporter: Box<dyn Reporter> = match effective_format {
+            OutputFormat::Terminal => Box::new(TerminalReporter),
+            OutputFormat::Json => Box::new(JsonReporter),
+            OutputFormat::Markdown => Box::new(MarkdownReporter),
+        };
+        if let Err(e) = reporter.report(&result, &i18n) {
+            eprintln!("Report error: {e}");
+            return ExitCode::FAILURE;
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    // Handle supply-chain subcommand
+    if let Some(Commands::SupplyChain) = &cli.command {
+        let report = lockpick::supply_chain::analyze(&graph);
+        let result = lockpick::AnalysisResult {
+            unused: None,
+            vulns: None,
+            duplicates: None,
+            size: None,
+            license: None,
+            outdated: None,
+            supply_chain: Some(report),
+        };
+        let effective_format = cli.format.unwrap_or(match rc_config.format {
+            Some(lockpick::config::types::OutputFormatConfig::Json) => OutputFormat::Json,
+            Some(lockpick::config::types::OutputFormatConfig::Markdown) => OutputFormat::Markdown,
+            _ => OutputFormat::Terminal,
+        });
+        let reporter: Box<dyn Reporter> = match effective_format {
+            OutputFormat::Terminal => Box::new(TerminalReporter),
+            OutputFormat::Json => Box::new(JsonReporter),
+            OutputFormat::Markdown => Box::new(MarkdownReporter),
+        };
+        if let Err(e) = reporter.report(&result, &i18n) {
+            eprintln!("Report error: {e}");
+            return ExitCode::FAILURE;
+        }
+        let has_high = result.supply_chain.as_ref().is_some_and(|sc| {
+            sc.risks.iter().any(|r| {
+                matches!(
+                    r.severity,
+                    lockpick::Severity::High | lockpick::Severity::Critical
+                )
+            })
+        });
+        return if has_high {
+            ExitCode::FAILURE
+        } else {
+            ExitCode::SUCCESS
+        };
+    }
+
     // Standard analysis pipeline
-    let (run_unused, run_audit, run_fix) = match &cli.command {
-        Some(Commands::Unused) => (true, false, false),
-        Some(Commands::Audit) => (false, true, false),
-        Some(Commands::Fix) => (true, false, true),
-        _ => (true, true, false),
+    let (run_unused, run_audit, run_fix, run_supply_chain) = match &cli.command {
+        Some(Commands::Unused) => (true, false, false, false),
+        Some(Commands::Audit) => (false, true, false, false),
+        Some(Commands::Fix) => (true, false, true, false),
+        _ => (true, true, false, true), // scan: all enabled
     };
 
     let effective_format = cli.format.unwrap_or(match rc_config.format {
@@ -261,6 +379,7 @@ async fn main() -> ExitCode {
         run_unused,
         run_audit,
         run_fix,
+        run_supply_chain,
         verbose: cli.verbose,
         dry_run: cli.dry_run,
         no_cache: cli.no_cache,
@@ -269,10 +388,18 @@ async fn main() -> ExitCode {
 
     // When --output is specified, use a no-op reporter (we'll write to file after)
     let noop_reporter = lockpick::report::NoopReporter;
-    let active_reporter: &dyn Reporter = if cli.output.is_some() { &noop_reporter } else { &*reporter };
+    let active_reporter: &dyn Reporter = if cli.output.is_some() {
+        &noop_reporter
+    } else {
+        &*reporter
+    };
 
     let (has_issues, analysis_result) = if lockpick::workspace::is_monorepo(&project_path) {
-        (lockpick::runner::run_monorepo(&project_path, &graph, &cfg, &i18n, active_reporter).await, None)
+        (
+            lockpick::runner::run_monorepo(&project_path, &graph, &cfg, &i18n, active_reporter)
+                .await,
+            None,
+        )
     } else {
         lockpick::runner::run_single(&project_path, &graph, &cfg, &i18n, active_reporter).await
     };
@@ -292,10 +419,18 @@ async fn main() -> ExitCode {
 
     // Threshold evaluation: --fail-on CLI or .lockpickrc thresholds
     let threshold_exceeded = if let Some(result) = &analysis_result {
-        let thresholds = cli.fail_on.as_ref().map(|level| {
-            let s = match level { FailLevel::Critical => "critical", FailLevel::High => "high", FailLevel::Any => "any" };
-            lockpick::threshold::from_fail_on(s)
-        }).or(rc_config.thresholds.clone());
+        let thresholds = cli
+            .fail_on
+            .as_ref()
+            .map(|level| {
+                let s = match level {
+                    FailLevel::Critical => "critical",
+                    FailLevel::High => "high",
+                    FailLevel::Any => "any",
+                };
+                lockpick::threshold::from_fail_on(s)
+            })
+            .or(rc_config.thresholds.clone());
         thresholds.is_some_and(|t| lockpick::threshold::evaluate(result, &t))
     } else {
         false
@@ -318,4 +453,35 @@ fn write_output(path: &Option<PathBuf>, content: &str) -> ExitCode {
         print!("{content}");
     }
     ExitCode::SUCCESS
+}
+
+fn filter_outdated(
+    mut report: lockpick::OutdatedReport,
+    level: &Option<SemverLevelFilter>,
+) -> lockpick::OutdatedReport {
+    if let Some(filter) = level {
+        let target = match filter {
+            SemverLevelFilter::Patch => lockpick::SemverLevel::Patch,
+            SemverLevelFilter::Minor => lockpick::SemverLevel::Minor,
+            SemverLevelFilter::Major => lockpick::SemverLevel::Major,
+        };
+        report.entries.retain(|e| e.level == target);
+        report.total_outdated = report.entries.len();
+        report.patch_count = report
+            .entries
+            .iter()
+            .filter(|e| e.level == lockpick::SemverLevel::Patch)
+            .count();
+        report.minor_count = report
+            .entries
+            .iter()
+            .filter(|e| e.level == lockpick::SemverLevel::Minor)
+            .count();
+        report.major_count = report
+            .entries
+            .iter()
+            .filter(|e| e.level == lockpick::SemverLevel::Major)
+            .count();
+    }
+    report
 }
