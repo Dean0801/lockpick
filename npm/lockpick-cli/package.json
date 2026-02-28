@@ -1,6 +1,6 @@
 {
   "name": "lockpick-cli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Blazing-fast JS/TS dependency analyzer CLI, built with Rust",
   "license": "MIT",
   "repository": {
@@ -12,12 +12,12 @@
   },
   "files": ["bin"],
   "optionalDependencies": {
-    "lockpick-cli-darwin-arm64": "0.6.0",
-    "lockpick-cli-darwin-x64": "0.6.0",
-    "lockpick-cli-linux-x64-gnu": "0.6.0",
-    "lockpick-cli-linux-x64-musl": "0.6.0",
-    "lockpick-cli-linux-arm64-gnu": "0.6.0",
-    "lockpick-cli-win32-x64": "0.6.0"
+    "lockpick-cli-darwin-arm64": "0.6.1",
+    "lockpick-cli-darwin-x64": "0.6.1",
+    "lockpick-cli-linux-x64-gnu": "0.6.1",
+    "lockpick-cli-linux-x64-musl": "0.6.1",
+    "lockpick-cli-linux-arm64-gnu": "0.6.1",
+    "lockpick-cli-win32-x64": "0.6.1"
   },
   "engines": {
     "node": ">=14"
