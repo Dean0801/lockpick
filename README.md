@@ -11,14 +11,14 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 - **Scripts awareness** — Parses `package.json` scripts to detect CLI tools (e.g. `tsc` → `typescript`), supports chained commands (`&&`, `||`, `;`, `|`)
 - **Monorepo support** — Detects pnpm/npm/yarn workspaces and analyzes each package independently
 - **Project config (.lockpickrc)** — JSON/YAML config file for persistent ignore rules, language, and extra config paths
-- **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs across all your dependencies, with local file cache for faster repeat scans
+- **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs, computes CVSS 3.x Base Score from vector strings, with local file cache and progress bar
 - **Duplicate detection** — Finds packages with multiple versions installed in your lockfile
 - **Size analysis** — Measures the disk size of each dependency in `node_modules`
 - **License compliance** — Extracts license info from `node_modules`, normalizes SPDX aliases, supports allow/deny policy via `.lockpickrc`
-- **Auto-fix** — `lockpick fix` removes unused dependencies via your package manager (supports `--dry-run`)
-- **Outdated detection** — `lockpick outdated` checks npm registry for newer versions, correlates with vulnerability data for upgrade priority
-- **Supply chain security** — `lockpick supply-chain` detects typosquatting, scope confusion, and version anomaly attacks
-- **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, bun.lock, package-lock.json, and yarn.lock
+- **Auto-fix** — `lockpick-cli fix` removes unused dependencies via your package manager, supports monorepo workspaces and `--dry-run`
+- **Outdated detection** — `lockpick-cli outdated` checks npm registry for newer versions with progress bar, correlates with vulnerability data for upgrade priority
+- **Supply chain security** — `lockpick-cli supply-chain` detects typosquatting, scope confusion, and version anomaly attacks; High/Critical risks affect exit code
+- **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, bun.lock, package-lock.json, and yarn.lock (including yarn Berry v2/v3/v4)
 - **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions)
 - **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found; supports `--fail-on` threshold and `.lockpickrc` thresholds for fine-grained CI gating
 - **Smart @types association** — `@types/react` won't be flagged as unused if `react` is imported
@@ -53,65 +53,65 @@ cargo build --release
 
 ```bash
 # Full scan (unused deps + vulnerability audit)
-lockpick
+lockpick-cli
 
 # Scan a specific project
-lockpick --path /path/to/project
+lockpick-cli --path /path/to/project
 
 # Unused dependencies only
-lockpick unused
+lockpick-cli unused
 
 # Vulnerability audit only
-lockpick audit
+lockpick-cli audit
 
 # Chinese output
-lockpick --lang zh
+lockpick-cli --lang zh
 
 # JSON output
-lockpick --format json
+lockpick-cli --format json
 
 # Skip devDependencies
-lockpick --no-dev
+lockpick-cli --no-dev
 
 # Ignore specific packages
-lockpick --ignore react --ignore lodash
+lockpick-cli --ignore react --ignore lodash
 
 # Auto-remove unused dependencies
-lockpick fix
+lockpick-cli fix
 
 # Dry run (preview what would be removed)
-lockpick fix --dry-run
+lockpick-cli fix --dry-run
 
 # Disable vulnerability cache
-lockpick audit --no-cache
+lockpick-cli audit --no-cache
 
 # Markdown report to file
-lockpick --format markdown --output report.md
+lockpick-cli --format markdown --output report.md
 
 # Dependency tree visualization
-lockpick tree
-lockpick tree --format dot          # Graphviz DOT
-lockpick tree --format mermaid      # Mermaid diagram
-lockpick tree --focus react         # Focus on a package
-lockpick tree --depth 2             # Limit depth
+lockpick-cli tree
+lockpick-cli tree --format dot          # Graphviz DOT
+lockpick-cli tree --format mermaid      # Mermaid diagram
+lockpick-cli tree --focus react         # Focus on a package
+lockpick-cli tree --depth 2             # Limit depth
 
 # Diff against baseline
-lockpick --format json --output baseline.json   # Save baseline
-lockpick diff baseline.json                      # Compare later
-lockpick diff baseline.json --format markdown    # Markdown diff
+lockpick-cli --format json --output baseline.json   # Save baseline
+lockpick-cli diff baseline.json                      # Compare later
+lockpick-cli diff baseline.json --format markdown    # Markdown diff
 
 # Outdated dependency check
-lockpick outdated
-lockpick outdated --level patch        # Filter by semver level
-lockpick outdated --no-audit           # Skip vulnerability correlation
-lockpick outdated --registry https://registry.npmmirror.com  # Custom registry
+lockpick-cli outdated
+lockpick-cli outdated --level patch        # Filter by semver level
+lockpick-cli outdated --no-audit           # Skip vulnerability correlation
+lockpick-cli outdated --registry https://registry.npmmirror.com  # Custom registry
 
 # Supply chain security analysis
-lockpick supply-chain
+lockpick-cli supply-chain
 
 # CI threshold gate
-lockpick --fail-on critical         # Fail on critical vulns only
-lockpick --fail-on any              # Fail on any issue
+lockpick-cli --fail-on critical         # Fail on critical vulns only
+lockpick-cli --fail-on any              # Fail on any issue
 ```
 
 ## Supported Lockfiles
@@ -120,7 +120,7 @@ lockpick --fail-on any              # Fail on any issue
 |----------|--------|
 | pnpm-lock.yaml (v9) | ✅ Supported |
 | package-lock.json (v1/v2/v3) | ✅ Supported |
-| yarn.lock (v1) | ✅ Supported |
+| yarn.lock (v1 + Berry v2/v3/v4) | ✅ Supported |
 | bun.lock | ✅ Supported |
 
 ## Configuration (.lockpickrc)
