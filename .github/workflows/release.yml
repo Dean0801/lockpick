@@ -103,14 +103,14 @@ jobs:
 
       - name: Publish platform packages
         run: |
-          for pkg in npm/lockpick-cli-*/; do
+          for pkg in ./npm/lockpick-cli-*/; do
             npm publish "$pkg" --access public || true
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish main package
-        run: npm publish npm/lockpick-cli --access public
+        run: npm publish ./npm/lockpick-cli --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -122,8 +122,17 @@ jobs:
         with:
           path: artifacts
 
+      - name: Rename artifacts
+        run: |
+          mv artifacts/lockpick-cli-darwin-arm64/lockpick      artifacts/lockpick-darwin-arm64
+          mv artifacts/lockpick-cli-darwin-x64/lockpick        artifacts/lockpick-darwin-x64
+          mv artifacts/lockpick-cli-linux-x64-gnu/lockpick     artifacts/lockpick-linux-x64-gnu
+          mv artifacts/lockpick-cli-linux-x64-musl/lockpick    artifacts/lockpick-linux-x64-musl
+          mv artifacts/lockpick-cli-linux-arm64-gnu/lockpick   artifacts/lockpick-linux-arm64-gnu
+          mv artifacts/lockpick-cli-win32-x64/lockpick.exe     artifacts/lockpick-win32-x64.exe
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/**/*
+          files: artifacts/lockpick-*
