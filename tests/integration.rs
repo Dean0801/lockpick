@@ -149,6 +149,8 @@ fn test_json_reporter_output() {
         duplicates: None,
         size: None,
         license: None,
+        outdated: None,
+        supply_chain: None,
     };
 
     let json = serde_json::to_string_pretty(&result).unwrap();
@@ -176,6 +178,8 @@ fn test_threshold_evaluation() {
         duplicates: None,
         size: None,
         license: None,
+        outdated: None,
+        supply_chain: None,
     };
 
     let strict = Thresholds {
@@ -184,6 +188,7 @@ fn test_threshold_evaluation() {
         max_unused: 0,
         max_duplicates: -1,
         fail_on_license: false,
+        max_supply_chain_high: -1,
     };
     assert!(evaluate(&result, &strict));
 
@@ -206,6 +211,8 @@ fn test_diff_integration() {
         duplicates: None,
         size: None,
         license: None,
+        outdated: None,
+        supply_chain: None,
     };
 
     let current = AnalysisResult {
@@ -214,6 +221,8 @@ fn test_diff_integration() {
         duplicates: None,
         size: None,
         license: None,
+        outdated: None,
+        supply_chain: None,
     };
 
     let dir = tempfile::tempdir().unwrap();

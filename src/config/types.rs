@@ -51,6 +51,10 @@ pub struct LockpickConfig {
     #[serde(default)]
     pub cache_ttl: Option<u64>,
 
+    /// Custom npm registry URL
+    #[serde(default)]
+    pub registry: Option<String>,
+
     /// CI threshold configuration
     #[serde(default)]
     pub thresholds: Option<Thresholds>,
@@ -78,6 +82,9 @@ pub struct Thresholds {
     /// Fail on license violations
     #[serde(default)]
     pub fail_on_license: bool,
+    /// Max high/critical supply chain risks allowed (-1 = unlimited)
+    #[serde(default = "default_neg_one")]
+    pub max_supply_chain_high: i32,
 }
 
 impl Default for Thresholds {
@@ -88,6 +95,7 @@ impl Default for Thresholds {
             max_unused: -1,
             max_duplicates: -1,
             fail_on_license: false,
+            max_supply_chain_high: -1,
         }
     }
 }

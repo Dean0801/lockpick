@@ -1,19 +1,21 @@
 pub mod analyze;
-pub mod runner;
-pub mod utils;
 pub mod analyzer;
 pub mod audit;
 pub mod cache;
 pub mod config;
+pub mod diff;
 pub mod error;
 pub mod fix;
 pub mod i18n;
 pub mod lockfile;
+pub mod outdated;
 pub mod report;
+pub mod runner;
 pub mod scanner;
+pub mod supply_chain;
 pub mod threshold;
 pub mod tree;
-pub mod diff;
+pub mod utils;
 pub mod workspace;
 
 use serde::{Deserialize, Serialize};
@@ -164,6 +166,68 @@ pub struct UnusedReport {
     pub unused: Vec<UnusedDep>,
 }
 
+/// Semver update level
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SemverLevel {
+    Patch,
+    Minor,
+    Major,
+}
+
+/// Upgrade priority (combines outdated + vuln info)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UpgradePriority {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+/// A single outdated dependency entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutdatedEntry {
+    pub name: String,
+    pub current: String,
+    pub latest: String,
+    pub level: SemverLevel,
+    pub dep_type: DepType,
+    pub priority: UpgradePriority,
+    pub vuln_ids: Vec<String>,
+}
+
+/// Outdated dependencies report
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutdatedReport {
+    pub entries: Vec<OutdatedEntry>,
+    pub total_outdated: usize,
+    pub patch_count: usize,
+    pub minor_count: usize,
+    pub major_count: usize,
+}
+
+/// Type of supply chain risk detected
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SupplyChainRiskType {
+    Typosquat { similar_to: String, distance: usize },
+    ScopeConfusion { legitimate: String },
+    VersionAnomaly { installed_version: String },
+}
+
+/// A single supply chain risk finding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplyChainRisk {
+    pub package: String,
+    pub version: String,
+    pub risk_type: SupplyChainRiskType,
+    pub severity: Severity,
+}
+
+/// Supply chain analysis report
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplyChainReport {
+    pub risks: Vec<SupplyChainRisk>,
+}
+
 /// Combined analysis result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
@@ -172,6 +236,10 @@ pub struct AnalysisResult {
     pub duplicates: Option<DuplicateReport>,
     pub size: Option<SizeReport>,
     pub license: Option<LicenseReport>,
+    #[serde(default)]
+    pub outdated: Option<OutdatedReport>,
+    #[serde(default)]
+    pub supply_chain: Option<SupplyChainReport>,
 }
 
 #[cfg(test)]
@@ -212,6 +280,8 @@ mod tests {
             duplicates: None,
             size: None,
             license: None,
+            outdated: None,
+            supply_chain: None,
         };
         assert!(result.duplicates.is_none());
         assert!(result.size.is_none());
@@ -284,8 +354,49 @@ mod tests {
     #[test]
     fn test_dependency_graph_dep_edges_serde_default() {
         // Old JSON without dep_edges should deserialize with empty dep_edges
-        let json = r#"{"dependencies":{},"dev_dependencies":{},"lockfile_type":"Pnpm","all_packages":{}}"#;
+        let json =
+            r#"{"dependencies":{},"dev_dependencies":{},"lockfile_type":"Pnpm","all_packages":{}}"#;
         let graph: DependencyGraph = serde_json::from_str(json).unwrap();
         assert!(graph.dep_edges.is_empty());
+    }
+
+    #[test]
+    fn test_outdated_entry_struct() {
+        let entry = OutdatedEntry {
+            name: "lodash".into(),
+            current: "4.17.20".into(),
+            latest: "4.17.21".into(),
+            level: SemverLevel::Patch,
+            dep_type: DepType::Prod,
+            priority: UpgradePriority::Low,
+            vuln_ids: vec![],
+        };
+        assert_eq!(entry.name, "lodash");
+        assert_eq!(entry.level, SemverLevel::Patch);
+        assert_eq!(entry.priority, UpgradePriority::Low);
+    }
+
+    #[test]
+    fn test_supply_chain_risk_struct() {
+        let risk = SupplyChainRisk {
+            package: "lod-ash".into(),
+            version: "4.17.21".into(),
+            risk_type: SupplyChainRiskType::Typosquat {
+                similar_to: "lodash".into(),
+                distance: 1,
+            },
+            severity: Severity::High,
+        };
+        assert_eq!(risk.package, "lod-ash");
+        matches!(risk.risk_type, SupplyChainRiskType::Typosquat { .. });
+    }
+
+    #[test]
+    fn test_analysis_result_serde_default_new_fields() {
+        // Old JSON without outdated/supply_chain should deserialize fine
+        let json = r#"{"unused":null,"vulns":null,"duplicates":null,"size":null,"license":null}"#;
+        let result: AnalysisResult = serde_json::from_str(json).unwrap();
+        assert!(result.outdated.is_none());
+        assert!(result.supply_chain.is_none());
     }
 }

@@ -47,10 +47,14 @@ pub fn compute_diff(
     let duplicates = diff_duplicates(&baseline, current);
     let license_violations = diff_licenses(&baseline, current);
 
-    let new_issues =
-        unused.added.len() + vulns.added.len() + duplicates.added.len() + license_violations.added.len();
-    let resolved_issues =
-        unused.removed.len() + vulns.removed.len() + duplicates.removed.len() + license_violations.removed.len();
+    let new_issues = unused.added.len()
+        + vulns.added.len()
+        + duplicates.added.len()
+        + license_violations.added.len();
+    let resolved_issues = unused.removed.len()
+        + vulns.removed.len()
+        + duplicates.removed.len()
+        + license_violations.removed.len();
 
     Ok(DiffReport {
         summary: DiffSummary {
@@ -79,7 +83,12 @@ pub fn render_terminal(report: &DiffReport, i18n: &I18n) -> String {
         report.summary.resolved_issues,
         i18n.t("diff_resolved"),
     ));
-    render_diff_section_terminal(&mut out, &report.unused.added, &report.unused.removed, i18n.t("unused_deps"));
+    render_diff_section_terminal(
+        &mut out,
+        &report.unused.added,
+        &report.unused.removed,
+        i18n.t("unused_deps"),
+    );
     for s in &report.vulns.added {
         out.push_str(&format!("  + {s}\n"));
     }
@@ -89,7 +98,12 @@ pub fn render_terminal(report: &DiffReport, i18n: &I18n) -> String {
     out
 }
 
-fn render_diff_section_terminal(out: &mut String, added: &[UnusedDep], removed: &[UnusedDep], label: &str) {
+fn render_diff_section_terminal(
+    out: &mut String,
+    added: &[UnusedDep],
+    removed: &[UnusedDep],
+    label: &str,
+) {
     if !added.is_empty() {
         out.push_str(&format!("\n+ {label} ({}):\n", added.len()));
         for dep in added {
@@ -107,7 +121,11 @@ fn render_diff_section_terminal(out: &mut String, added: &[UnusedDep], removed: 
 /// Render diff report as Markdown.
 pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
     let mut md = String::new();
-    md.push_str(&format!("# {} lockpick diff {}\n\n", "🔍", i18n.t("scan_complete")));
+    md.push_str(&format!(
+        "# {} lockpick diff {}\n\n",
+        "🔍",
+        i18n.t("scan_complete")
+    ));
     md.push_str("| | baseline | current | delta |\n");
     md.push_str("|------|------|------|------|\n");
     md.push_str(&format!(
@@ -117,13 +135,21 @@ pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
         format_delta(report.summary.new_issues, report.summary.resolved_issues),
     ));
     if report.summary.new_issues > 0 {
-        md.push_str(&format!("## {} ({})\n\n", i18n.t("diff_new"), report.summary.new_issues));
+        md.push_str(&format!(
+            "## {} ({})\n\n",
+            i18n.t("diff_new"),
+            report.summary.new_issues
+        ));
         for dep in &report.unused.added {
             md.push_str(&format!("- {} {}\n", dep.name, dep.version));
         }
     }
     if report.summary.resolved_issues > 0 {
-        md.push_str(&format!("\n## {} ({})\n\n", i18n.t("diff_resolved"), report.summary.resolved_issues));
+        md.push_str(&format!(
+            "\n## {} ({})\n\n",
+            i18n.t("diff_resolved"),
+            report.summary.resolved_issues
+        ));
         for dep in &report.unused.removed {
             md.push_str(&format!("- {} {}\n", dep.name, dep.version));
         }
@@ -133,61 +159,110 @@ pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
 
 fn diff_unused(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSection<UnusedDep> {
     let base_names: HashSet<String> = baseline
-        .unused.as_ref()
+        .unused
+        .as_ref()
         .map(|u| u.unused.iter().map(|d| d.name.clone()).collect())
         .unwrap_or_default();
     let curr_names: HashSet<String> = current
-        .unused.as_ref()
+        .unused
+        .as_ref()
         .map(|u| u.unused.iter().map(|d| d.name.clone()).collect())
         .unwrap_or_default();
-    let added = current.unused.as_ref()
-        .map(|u| u.unused.iter().filter(|d| !base_names.contains(&d.name)).cloned().collect())
+    let added = current
+        .unused
+        .as_ref()
+        .map(|u| {
+            u.unused
+                .iter()
+                .filter(|d| !base_names.contains(&d.name))
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
-    let removed = baseline.unused.as_ref()
-        .map(|u| u.unused.iter().filter(|d| !curr_names.contains(&d.name)).cloned().collect())
+    let removed = baseline
+        .unused
+        .as_ref()
+        .map(|u| {
+            u.unused
+                .iter()
+                .filter(|d| !curr_names.contains(&d.name))
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
     DiffSection { added, removed }
 }
 
 fn diff_vulns(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSection<String> {
     let to_keys = |r: &AnalysisResult| -> HashSet<String> {
-        r.vulns.as_ref()
-            .map(|vs| vs.iter().flat_map(|vr| {
-                vr.vulns.iter().map(move |v| format!("{}@{}:{}", vr.package, vr.version, v.id))
-            }).collect())
+        r.vulns
+            .as_ref()
+            .map(|vs| {
+                vs.iter()
+                    .flat_map(|vr| {
+                        vr.vulns
+                            .iter()
+                            .map(move |v| format!("{}@{}:{}", vr.package, vr.version, v.id))
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let base = to_keys(baseline);
     let curr = to_keys(current);
-    DiffSection { added: curr.difference(&base).cloned().collect(), removed: base.difference(&curr).cloned().collect() }
+    DiffSection {
+        added: curr.difference(&base).cloned().collect(),
+        removed: base.difference(&curr).cloned().collect(),
+    }
 }
 
 fn diff_duplicates(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSection<String> {
     let to_keys = |r: &AnalysisResult| -> HashSet<String> {
-        r.duplicates.as_ref()
+        r.duplicates
+            .as_ref()
             .map(|d| d.duplicates.iter().map(|e| e.name.clone()).collect())
             .unwrap_or_default()
     };
     let base = to_keys(baseline);
     let curr = to_keys(current);
-    DiffSection { added: curr.difference(&base).cloned().collect(), removed: base.difference(&curr).cloned().collect() }
+    DiffSection {
+        added: curr.difference(&base).cloned().collect(),
+        removed: base.difference(&curr).cloned().collect(),
+    }
 }
 
 fn diff_licenses(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSection<String> {
     let to_keys = |r: &AnalysisResult| -> HashSet<String> {
-        r.license.as_ref()
-            .map(|l| l.violations.iter().map(|v| format!("{}:{}", v.package, v.license)).collect())
+        r.license
+            .as_ref()
+            .map(|l| {
+                l.violations
+                    .iter()
+                    .map(|v| format!("{}:{}", v.package, v.license))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     let base = to_keys(baseline);
     let curr = to_keys(current);
-    DiffSection { added: curr.difference(&base).cloned().collect(), removed: base.difference(&curr).cloned().collect() }
+    DiffSection {
+        added: curr.difference(&base).cloned().collect(),
+        removed: base.difference(&curr).cloned().collect(),
+    }
 }
 
 fn count_issues(r: &AnalysisResult) -> usize {
     let unused = r.unused.as_ref().map(|u| u.unused.len()).unwrap_or(0);
-    let vulns: usize = r.vulns.as_ref().map(|v| v.iter().map(|vr| vr.vulns.len()).sum()).unwrap_or(0);
-    let dups = r.duplicates.as_ref().map(|d| d.duplicates.len()).unwrap_or(0);
+    let vulns: usize = r
+        .vulns
+        .as_ref()
+        .map(|v| v.iter().map(|vr| vr.vulns.len()).sum())
+        .unwrap_or(0);
+    let dups = r
+        .duplicates
+        .as_ref()
+        .map(|d| d.duplicates.len())
+        .unwrap_or(0);
     let lics = r.license.as_ref().map(|l| l.violations.len()).unwrap_or(0);
     unused + vulns + dups + lics
 }
@@ -210,11 +285,24 @@ mod tests {
         AnalysisResult {
             unused: Some(UnusedReport {
                 unused: vec![
-                    UnusedDep { name: "lodash".into(), version: "4.17.21".into(), dep_type: DepType::Prod },
-                    UnusedDep { name: "moment".into(), version: "2.30.1".into(), dep_type: DepType::Prod },
+                    UnusedDep {
+                        name: "lodash".into(),
+                        version: "4.17.21".into(),
+                        dep_type: DepType::Prod,
+                    },
+                    UnusedDep {
+                        name: "moment".into(),
+                        version: "2.30.1".into(),
+                        dep_type: DepType::Prod,
+                    },
                 ],
             }),
-            vulns: None, duplicates: None, size: None, license: None,
+            vulns: None,
+            duplicates: None,
+            size: None,
+            license: None,
+            outdated: None,
+            supply_chain: None,
         }
     }
 
@@ -224,11 +312,24 @@ mod tests {
         let current = AnalysisResult {
             unused: Some(UnusedReport {
                 unused: vec![
-                    UnusedDep { name: "moment".into(), version: "2.30.1".into(), dep_type: DepType::Prod },
-                    UnusedDep { name: "axios".into(), version: "1.6.0".into(), dep_type: DepType::Prod },
+                    UnusedDep {
+                        name: "moment".into(),
+                        version: "2.30.1".into(),
+                        dep_type: DepType::Prod,
+                    },
+                    UnusedDep {
+                        name: "axios".into(),
+                        version: "1.6.0".into(),
+                        dep_type: DepType::Prod,
+                    },
                 ],
             }),
-            vulns: None, duplicates: None, size: None, license: None,
+            vulns: None,
+            duplicates: None,
+            size: None,
+            license: None,
+            outdated: None,
+            supply_chain: None,
         };
 
         let dir = tempfile::tempdir().unwrap();

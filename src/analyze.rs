@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::config::types::LicensePolicy;
 use crate::error::LockpickError;
 use crate::i18n::I18n;
 use crate::{AnalysisResult, DependencyGraph, UnusedReport};
-use crate::config::types::LicensePolicy;
 
 /// Options for analyzing a single package
 pub struct AnalyzeOptions<'a> {
@@ -65,6 +65,8 @@ pub fn analyze_package(opts: &AnalyzeOptions<'_>) -> Result<AnalysisResult, Lock
         duplicates,
         size,
         license,
+        outdated: None,
+        supply_chain: None,
     })
 }
 
@@ -77,8 +79,7 @@ fn run_unused_detection(opts: &AnalyzeOptions<'_>) -> Result<UnusedReport, Lockp
     let mut used = HashSet::new();
     for file in &files {
         if let Ok(source) = std::fs::read_to_string(file) {
-            let imports =
-                crate::scanner::imports::extract_imports_from_source(&source, file);
+            let imports = crate::scanner::imports::extract_imports_from_source(&source, file);
             used.extend(imports);
         }
     }
@@ -88,10 +89,8 @@ fn run_unused_detection(opts: &AnalyzeOptions<'_>) -> Result<UnusedReport, Lockp
     used.extend(config_deps);
 
     // 4. Scan extra config files from .lockpickrc
-    let extra_deps = crate::scanner::config::extract_extra_config_deps(
-        opts.project_path,
-        opts.extra_configs,
-    );
+    let extra_deps =
+        crate::scanner::config::extract_extra_config_deps(opts.project_path, opts.extra_configs);
     used.extend(extra_deps);
 
     // 5. Scan package.json scripts for CLI tool references
@@ -103,8 +102,7 @@ fn run_unused_detection(opts: &AnalyzeOptions<'_>) -> Result<UnusedReport, Lockp
     }
 
     // 6. Detect unused
-    let mut report =
-        crate::scanner::unused::detect_unused(opts.graph, &used, opts.skip_dev);
+    let mut report = crate::scanner::unused::detect_unused(opts.graph, &used, opts.skip_dev);
 
     // 7. Apply ignore filter
     if !opts.ignore.is_empty() {

@@ -7,6 +7,7 @@ pub fn evaluate(result: &AnalysisResult, thresholds: &Thresholds) -> bool {
         || check_unused(result, thresholds)
         || check_duplicates(result, thresholds)
         || check_license(result, thresholds)
+        || check_supply_chain(result, thresholds)
 }
 
 /// Create Thresholds from --fail-on preset level
@@ -27,6 +28,7 @@ pub fn from_fail_on(level: &str) -> Thresholds {
             max_unused: 0,
             max_duplicates: 0,
             fail_on_license: true,
+            max_supply_chain_high: 0,
         },
         _ => Thresholds::default(),
     }
@@ -37,7 +39,9 @@ fn exceeds(count: usize, limit: i32) -> bool {
 }
 
 fn check_vulns(result: &AnalysisResult, t: &Thresholds) -> bool {
-    let Some(ref vulns) = result.vulns else { return false };
+    let Some(ref vulns) = result.vulns else {
+        return false;
+    };
     let (mut critical, mut high) = (0usize, 0usize);
     for vr in vulns {
         for v in &vr.vulns {
@@ -52,33 +56,55 @@ fn check_vulns(result: &AnalysisResult, t: &Thresholds) -> bool {
 }
 
 fn check_unused(result: &AnalysisResult, t: &Thresholds) -> bool {
-    let Some(ref unused) = result.unused else { return false };
+    let Some(ref unused) = result.unused else {
+        return false;
+    };
     exceeds(unused.unused.len(), t.max_unused)
 }
 
 fn check_duplicates(result: &AnalysisResult, t: &Thresholds) -> bool {
-    let Some(ref dups) = result.duplicates else { return false };
+    let Some(ref dups) = result.duplicates else {
+        return false;
+    };
     exceeds(dups.total_duplicate_packages, t.max_duplicates)
 }
 
 fn check_license(result: &AnalysisResult, t: &Thresholds) -> bool {
-    if !t.fail_on_license { return false }
-    let Some(ref license) = result.license else { return false };
+    if !t.fail_on_license {
+        return false;
+    }
+    let Some(ref license) = result.license else {
+        return false;
+    };
     !license.violations.is_empty()
+}
+
+fn check_supply_chain(result: &AnalysisResult, t: &Thresholds) -> bool {
+    let Some(ref sc) = result.supply_chain else {
+        return false;
+    };
+    let high_count = sc
+        .risks
+        .iter()
+        .filter(|r| matches!(r.severity, Severity::High | Severity::Critical))
+        .count();
+    exceeds(high_count, t.max_supply_chain_high)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        AnalysisResult, UnusedDep, UnusedReport, VulnReport, Vulnerability,
-        DepType,
-    };
+    use crate::{AnalysisResult, DepType, UnusedDep, UnusedReport, VulnReport, Vulnerability};
 
     fn empty_result() -> AnalysisResult {
         AnalysisResult {
-            unused: None, vulns: None, duplicates: None,
-            size: None, license: None,
+            unused: None,
+            vulns: None,
+            duplicates: None,
+            size: None,
+            license: None,
+            outdated: None,
+            supply_chain: None,
         }
     }
 
@@ -86,10 +112,13 @@ mod tests {
     fn test_default_thresholds_never_fail() {
         let mut r = empty_result();
         r.vulns = Some(vec![VulnReport {
-            package: "x".into(), version: "1.0.0".into(),
+            package: "x".into(),
+            version: "1.0.0".into(),
             vulns: vec![Vulnerability {
-                id: "V1".into(), summary: "t".into(),
-                severity: Severity::Critical, fixed_version: None,
+                id: "V1".into(),
+                summary: "t".into(),
+                severity: Severity::Critical,
+                fixed_version: None,
             }],
         }]);
         assert!(!evaluate(&r, &Thresholds::default()));
@@ -99,13 +128,19 @@ mod tests {
     fn test_critical_threshold_exceeded() {
         let mut r = empty_result();
         r.vulns = Some(vec![VulnReport {
-            package: "x".into(), version: "1.0.0".into(),
+            package: "x".into(),
+            version: "1.0.0".into(),
             vulns: vec![Vulnerability {
-                id: "V1".into(), summary: "t".into(),
-                severity: Severity::Critical, fixed_version: None,
+                id: "V1".into(),
+                summary: "t".into(),
+                severity: Severity::Critical,
+                fixed_version: None,
             }],
         }]);
-        let t = Thresholds { max_critical: 0, ..Default::default() };
+        let t = Thresholds {
+            max_critical: 0,
+            ..Default::default()
+        };
         assert!(evaluate(&r, &t));
     }
 
@@ -114,11 +149,15 @@ mod tests {
         let mut r = empty_result();
         r.unused = Some(UnusedReport {
             unused: vec![UnusedDep {
-                name: "a".into(), version: "1.0.0".into(),
+                name: "a".into(),
+                version: "1.0.0".into(),
                 dep_type: DepType::Prod,
             }],
         });
-        let t = Thresholds { max_unused: 0, ..Default::default() };
+        let t = Thresholds {
+            max_unused: 0,
+            ..Default::default()
+        };
         assert!(evaluate(&r, &t));
     }
 

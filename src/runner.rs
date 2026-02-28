@@ -16,6 +16,7 @@ pub struct RunConfig<'a> {
     pub run_unused: bool,
     pub run_audit: bool,
     pub run_fix: bool,
+    pub run_supply_chain: bool,
     pub verbose: bool,
     pub dry_run: bool,
     pub no_cache: bool,
@@ -161,7 +162,11 @@ pub async fn run_monorepo(
 
         match analyze_package(&opts) {
             Ok(pkg_result) => {
-                if pkg_result.unused.as_ref().is_some_and(|u| !u.unused.is_empty()) {
+                if pkg_result
+                    .unused
+                    .as_ref()
+                    .is_some_and(|u| !u.unused.is_empty())
+                {
                     all_has_unused = true;
                 }
                 if let Err(e) = reporter.report(&pkg_result, i18n) {
@@ -191,6 +196,8 @@ pub async fn run_monorepo(
             duplicates: None,
             size: None,
             license: None,
+            outdated: None,
+            supply_chain: None,
         };
         if let Err(e) = reporter.report(&vuln_result, i18n) {
             eprintln!("Report error: {e}");
@@ -224,6 +231,11 @@ pub async fn run_single(
     } else {
         None
     };
+
+    // Supply chain analysis
+    if cfg.run_supply_chain {
+        result.supply_chain = Some(crate::supply_chain::analyze(graph));
+    }
 
     // Fix mode
     if cfg.run_fix {
@@ -265,7 +277,12 @@ fn run_fix_mode(
         return false;
     }
 
-    match crate::fix::fix_unused(project_path, &unused_report.unused, &graph.lockfile_type, cfg.dry_run) {
+    match crate::fix::fix_unused(
+        project_path,
+        &unused_report.unused,
+        &graph.lockfile_type,
+        cfg.dry_run,
+    ) {
         Ok(fix_result) => {
             for name in &fix_result.removed {
                 eprintln!("{}: {}", i18n.t("fix_done"), name);
