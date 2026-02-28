@@ -19,7 +19,10 @@ pub fn detect_and_parse_with_edges(project_dir: &Path) -> Result<DependencyGraph
     detect_and_parse_inner(project_dir, true)
 }
 
-fn detect_and_parse_inner(project_dir: &Path, with_edges: bool) -> Result<DependencyGraph, LockpickError> {
+fn detect_and_parse_inner(
+    project_dir: &Path,
+    with_edges: bool,
+) -> Result<DependencyGraph, LockpickError> {
     let candidates = [
         ("pnpm-lock.yaml", "pnpm" as &str),
         ("bun.lock", "bun"),
@@ -30,8 +33,7 @@ fn detect_and_parse_inner(project_dir: &Path, with_edges: bool) -> Result<Depend
     for (filename, kind) in &candidates {
         let path = project_dir.join(filename);
         if path.exists() {
-            let content = std::fs::read_to_string(&path)
-                .map_err(LockpickError::Io)?;
+            let content = std::fs::read_to_string(&path).map_err(LockpickError::Io)?;
             return match (*kind, with_edges) {
                 ("pnpm", false) => pnpm::parse(&content),
                 ("pnpm", true) => pnpm::parse_with_edges(&content),
@@ -52,7 +54,10 @@ fn detect_and_parse_inner(project_dir: &Path, with_edges: bool) -> Result<Depend
         }
     }
 
-    Err(LockpickError::NoLockfile("No lockfile found (looked for pnpm-lock.yaml, bun.lock, package-lock.json, yarn.lock)".into()))
+    Err(LockpickError::NoLockfile(
+        "No lockfile found (looked for pnpm-lock.yaml, bun.lock, package-lock.json, yarn.lock)"
+            .into(),
+    ))
 }
 
 /// Read devDependencies names from package.json for yarn dev detection

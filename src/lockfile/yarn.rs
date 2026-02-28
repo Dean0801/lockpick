@@ -37,8 +37,7 @@ pub fn parse_with_dev_names(
         // Entry header: not indented, ends with ':'
         if !line.starts_with(' ') && line.ends_with(':') {
             let header = line.trim_end_matches(':').trim();
-            let name = extract_package_name(header)
-                .map_err(LockpickError::Parse)?;
+            let name = extract_package_name(header).map_err(LockpickError::Parse)?;
 
             // Parse indented block
             let mut version = None;
@@ -50,13 +49,11 @@ pub fn parse_with_dev_names(
 
                 if trimmed.starts_with("version ") {
                     version = Some(
-                        extract_quoted_value(trimmed, "version")
-                            .map_err(LockpickError::Parse)?,
+                        extract_quoted_value(trimmed, "version").map_err(LockpickError::Parse)?,
                     );
                 } else if trimmed.starts_with("integrity ") {
                     integrity = Some(
-                        extract_quoted_value(trimmed, "integrity")
-                            .map_err(LockpickError::Parse)?,
+                        extract_quoted_value(trimmed, "integrity").map_err(LockpickError::Parse)?,
                     );
                 }
 
@@ -130,8 +127,7 @@ pub fn parse_with_edges(
             while i < lines.len() && lines[i].starts_with(' ') {
                 let trimmed = lines[i].trim();
                 if trimmed.starts_with("version ") {
-                    version = extract_quoted_value(trimmed, "version")
-                        .unwrap_or_default();
+                    version = extract_quoted_value(trimmed, "version").unwrap_or_default();
                 } else if trimmed == "dependencies:" {
                     in_deps = true;
                 } else if in_deps && trimmed.contains(' ') {

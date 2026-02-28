@@ -170,7 +170,9 @@ pub fn parse_for_workspace(
         .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))?;
 
     let importer = lockfile.importers.get(importer_key).ok_or_else(|| {
-        LockpickError::Parse(format!("Importer '{importer_key}' not found in pnpm-lock.yaml"))
+        LockpickError::Parse(format!(
+            "Importer '{importer_key}' not found in pnpm-lock.yaml"
+        ))
     })?;
 
     let mut deps = HashMap::new();

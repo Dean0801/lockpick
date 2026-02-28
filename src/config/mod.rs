@@ -11,8 +11,7 @@ use types::LockpickConfig;
 pub fn load_config(project_root: &Path) -> Result<LockpickConfig, LockpickError> {
     let json_path = project_root.join(".lockpickrc.json");
     if json_path.exists() {
-        let content = std::fs::read_to_string(&json_path)
-            .map_err(LockpickError::Io)?;
+        let content = std::fs::read_to_string(&json_path).map_err(LockpickError::Io)?;
         let config = serde_json::from_str::<LockpickConfig>(&content)
             .map_err(|e| LockpickError::Config(format!("Invalid .lockpickrc.json: {e}")))?;
         return Ok(config);
@@ -20,8 +19,7 @@ pub fn load_config(project_root: &Path) -> Result<LockpickConfig, LockpickError>
 
     let yaml_path = project_root.join(".lockpickrc.yaml");
     if yaml_path.exists() {
-        let content = std::fs::read_to_string(&yaml_path)
-            .map_err(LockpickError::Io)?;
+        let content = std::fs::read_to_string(&yaml_path).map_err(LockpickError::Io)?;
         let config = serde_yml::from_str::<LockpickConfig>(&content)
             .map_err(|e| LockpickError::Config(format!("Invalid .lockpickrc.yaml: {e}")))?;
         return Ok(config);
@@ -77,8 +75,16 @@ mod tests {
     fn test_json_takes_priority_over_yaml() {
         let dir = tempfile::tempdir().unwrap();
 
-        fs::write(dir.path().join(".lockpickrc.json"), r#"{"ignore": ["from-json"]}"#).unwrap();
-        fs::write(dir.path().join(".lockpickrc.yaml"), "ignore:\n  - from-yaml\n").unwrap();
+        fs::write(
+            dir.path().join(".lockpickrc.json"),
+            r#"{"ignore": ["from-json"]}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".lockpickrc.yaml"),
+            "ignore:\n  - from-yaml\n",
+        )
+        .unwrap();
 
         let config = load_config(dir.path()).unwrap();
         assert_eq!(config.ignore, vec!["from-json"]);

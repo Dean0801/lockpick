@@ -30,8 +30,9 @@ fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, LockpickError
     // Try pnpm-workspace.yaml first
     let pnpm_path = project_root.join("pnpm-workspace.yaml");
     if let Ok(content) = fs::read_to_string(&pnpm_path) {
-        let yaml: Value = serde_yml::from_str(&content)
-            .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-workspace.yaml: {e}")))?;
+        let yaml: Value = serde_yml::from_str(&content).map_err(|e| {
+            LockpickError::Parse(format!("Failed to parse pnpm-workspace.yaml: {e}"))
+        })?;
         if let Some(packages) = yaml.get("packages").and_then(|v| v.as_array()) {
             let globs = packages
                 .iter()
@@ -67,7 +68,9 @@ fn get_workspace_globs(project_root: &Path) -> Result<Vec<String>, LockpickError
         }
     }
 
-    Err(LockpickError::Config("No workspace configuration found".into()))
+    Err(LockpickError::Config(
+        "No workspace configuration found".into(),
+    ))
 }
 
 /// Expands workspace glob patterns to find all workspace package directories.
@@ -82,8 +85,8 @@ pub fn detect_workspaces(project_root: &Path) -> Result<Vec<PathBuf>, LockpickEr
         let full_pattern = project_root.join(pattern).join("package.json");
         let pattern_str = full_pattern.to_string_lossy().to_string();
 
-        let entries =
-            glob(&pattern_str).map_err(|e| LockpickError::Parse(format!("Invalid glob pattern '{pattern}': {e}")))?;
+        let entries = glob(&pattern_str)
+            .map_err(|e| LockpickError::Parse(format!("Invalid glob pattern '{pattern}': {e}")))?;
 
         for entry in entries.flatten() {
             if let Some(parent) = entry.parent() {

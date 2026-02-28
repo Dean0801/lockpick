@@ -1,6 +1,6 @@
 use super::{DepTree, TreeNode};
-use crate::i18n::I18n;
 use crate::DepType;
+use crate::i18n::I18n;
 
 #[derive(Debug, Clone)]
 pub enum TreeFormat {

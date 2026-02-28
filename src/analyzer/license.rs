@@ -1,5 +1,7 @@
 use crate::config::types::LicensePolicy;
-use crate::{DepType, DependencyGraph, LicenseEntry, LicenseReport, LicenseViolation, ViolationReason};
+use crate::{
+    DepType, DependencyGraph, LicenseEntry, LicenseReport, LicenseViolation, ViolationReason,
+};
 use serde_json::Value;
 use std::path::Path;
 
@@ -85,10 +87,7 @@ pub fn extract_licenses(
 /// - If `policy.allow` is non-empty: any license NOT in the allow list is `NotAllowed`.
 /// - If `policy.deny` is non-empty (and allow is empty): any license IN the deny list is `Denied`.
 /// - `"UNKNOWN"` always produces an `Unknown` violation unless explicitly in the allow list.
-pub fn check_policy(
-    report: &LicenseReport,
-    policy: &LicensePolicy,
-) -> Vec<LicenseViolation> {
+pub fn check_policy(report: &LicenseReport, policy: &LicensePolicy) -> Vec<LicenseViolation> {
     let mut violations = Vec::new();
 
     for entry in &report.entries {
@@ -161,10 +160,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
 
-    fn make_graph(
-        deps: Vec<(&str, &str)>,
-        dev_deps: Vec<(&str, &str)>,
-    ) -> DependencyGraph {
+    fn make_graph(deps: Vec<(&str, &str)>, dev_deps: Vec<(&str, &str)>) -> DependencyGraph {
         let mut dependencies = HashMap::new();
         for (name, version) in deps {
             dependencies.insert(
@@ -216,7 +212,11 @@ mod tests {
     #[test]
     fn test_object_license_format() {
         let tmp = tempfile::tempdir().unwrap();
-        write_pkg_json(tmp.path(), "old-pkg", r#"{"name":"old-pkg","license":{"type":"ISC"}}"#);
+        write_pkg_json(
+            tmp.path(),
+            "old-pkg",
+            r#"{"name":"old-pkg","license":{"type":"ISC"}}"#,
+        );
         let graph = make_graph(vec![("old-pkg", "1.0.0")], vec![]);
         let report = extract_licenses(tmp.path(), &graph, false);
         assert_eq!(report.entries[0].license, "ISC");
@@ -225,7 +225,11 @@ mod tests {
     #[test]
     fn test_legacy_array_license_format() {
         let tmp = tempfile::tempdir().unwrap();
-        write_pkg_json(tmp.path(), "ancient-pkg", r#"{"name":"ancient-pkg","licenses":[{"type":"MIT"},{"type":"GPL-2.0"}]}"#);
+        write_pkg_json(
+            tmp.path(),
+            "ancient-pkg",
+            r#"{"name":"ancient-pkg","licenses":[{"type":"MIT"},{"type":"GPL-2.0"}]}"#,
+        );
         let graph = make_graph(vec![("ancient-pkg", "0.1.0")], vec![]);
         let report = extract_licenses(tmp.path(), &graph, false);
         assert_eq!(report.entries[0].license, "MIT");
@@ -243,8 +247,16 @@ mod tests {
     #[test]
     fn test_normalization_apache() {
         let tmp = tempfile::tempdir().unwrap();
-        write_pkg_json(tmp.path(), "pkg-a", r#"{"name":"pkg-a","license":"Apache 2.0"}"#);
-        write_pkg_json(tmp.path(), "pkg-b", r#"{"name":"pkg-b","license":"Apache-2"}"#);
+        write_pkg_json(
+            tmp.path(),
+            "pkg-a",
+            r#"{"name":"pkg-a","license":"Apache 2.0"}"#,
+        );
+        write_pkg_json(
+            tmp.path(),
+            "pkg-b",
+            r#"{"name":"pkg-b","license":"Apache-2"}"#,
+        );
         let graph = make_graph(vec![("pkg-a", "1.0.0"), ("pkg-b", "2.0.0")], vec![]);
         let report = extract_licenses(tmp.path(), &graph, false);
         for entry in &report.entries {
@@ -269,12 +281,25 @@ mod tests {
     fn test_check_policy_allow_list() {
         let report = LicenseReport {
             entries: vec![
-                LicenseEntry { name: "a".into(), version: "1.0.0".into(), license: "MIT".into(), dep_type: DepType::Prod },
-                LicenseEntry { name: "b".into(), version: "1.0.0".into(), license: "GPL-3.0".into(), dep_type: DepType::Prod },
+                LicenseEntry {
+                    name: "a".into(),
+                    version: "1.0.0".into(),
+                    license: "MIT".into(),
+                    dep_type: DepType::Prod,
+                },
+                LicenseEntry {
+                    name: "b".into(),
+                    version: "1.0.0".into(),
+                    license: "GPL-3.0".into(),
+                    dep_type: DepType::Prod,
+                },
             ],
             violations: vec![],
         };
-        let policy = LicensePolicy { allow: vec!["MIT".into(), "ISC".into()], deny: vec![] };
+        let policy = LicensePolicy {
+            allow: vec!["MIT".into(), "ISC".into()],
+            deny: vec![],
+        };
         let violations = check_policy(&report, &policy);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].package, "b");
@@ -284,12 +309,25 @@ mod tests {
     fn test_check_policy_deny_list() {
         let report = LicenseReport {
             entries: vec![
-                LicenseEntry { name: "a".into(), version: "1.0.0".into(), license: "MIT".into(), dep_type: DepType::Prod },
-                LicenseEntry { name: "b".into(), version: "1.0.0".into(), license: "GPL-3.0".into(), dep_type: DepType::Prod },
+                LicenseEntry {
+                    name: "a".into(),
+                    version: "1.0.0".into(),
+                    license: "MIT".into(),
+                    dep_type: DepType::Prod,
+                },
+                LicenseEntry {
+                    name: "b".into(),
+                    version: "1.0.0".into(),
+                    license: "GPL-3.0".into(),
+                    dep_type: DepType::Prod,
+                },
             ],
             violations: vec![],
         };
-        let policy = LicensePolicy { allow: vec![], deny: vec!["GPL-3.0".into()] };
+        let policy = LicensePolicy {
+            allow: vec![],
+            deny: vec!["GPL-3.0".into()],
+        };
         let violations = check_policy(&report, &policy);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].package, "b");
@@ -299,16 +337,24 @@ mod tests {
     fn test_unknown_always_violates_unless_allowed() {
         let report = LicenseReport {
             entries: vec![LicenseEntry {
-                name: "mystery".into(), version: "1.0.0".into(),
-                license: "UNKNOWN".into(), dep_type: DepType::Prod,
+                name: "mystery".into(),
+                version: "1.0.0".into(),
+                license: "UNKNOWN".into(),
+                dep_type: DepType::Prod,
             }],
             violations: vec![],
         };
-        let policy_empty = LicensePolicy { allow: vec![], deny: vec![] };
+        let policy_empty = LicensePolicy {
+            allow: vec![],
+            deny: vec![],
+        };
         let v = check_policy(&report, &policy_empty);
         assert_eq!(v.len(), 1);
 
-        let policy_allow_unknown = LicensePolicy { allow: vec!["UNKNOWN".into(), "MIT".into()], deny: vec![] };
+        let policy_allow_unknown = LicensePolicy {
+            allow: vec!["UNKNOWN".into(), "MIT".into()],
+            deny: vec![],
+        };
         let v = check_policy(&report, &policy_allow_unknown);
         assert!(v.is_empty());
     }

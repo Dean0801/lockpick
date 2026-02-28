@@ -26,9 +26,7 @@ fn parse_name_version(s: &str) -> Option<(&str, &str)> {
 /// Build a mapping from package name to (resolved_version, integrity) from the
 /// "packages" section of bun.lock. The integrity hash is extracted from the
 /// third element of each package array, if present.
-fn build_resolved_map(
-    root: &serde_json::Value,
-) -> (HashMap<String, Vec<String>>, ResolvedMap) {
+fn build_resolved_map(root: &serde_json::Value) -> (HashMap<String, Vec<String>>, ResolvedMap) {
     let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
     let mut resolved: ResolvedMap = HashMap::new();
 
@@ -53,10 +51,7 @@ fn build_resolved_map(
 
 /// Backfill resolved versions from the packages map into dependency entries.
 /// Replaces specifiers (e.g. "^18.2.0") with actual resolved versions (e.g. "18.2.0").
-fn backfill_versions(
-    target: &mut HashMap<String, PackageInfo>,
-    resolved: &ResolvedMap,
-) {
+fn backfill_versions(target: &mut HashMap<String, PackageInfo>, resolved: &ResolvedMap) {
     for (name, info) in target.iter_mut() {
         if let Some((version, integrity)) = resolved.get(name.as_str()) {
             info.version = version.clone();
@@ -115,10 +110,18 @@ pub fn parse_with_edges(content: &str) -> Result<DependencyGraph, LockpickError>
 
     if let Some(packages) = root.get("packages").and_then(|p| p.as_object()) {
         for (_key, value) in packages {
-            let Some(arr) = value.as_array() else { continue };
-            let Some(first) = arr.first().and_then(|v| v.as_str()) else { continue };
-            let Some((name, ver)) = parse_name_version(first) else { continue };
-            let Some(deps_obj) = arr.get(3).and_then(|v| v.as_object()) else { continue };
+            let Some(arr) = value.as_array() else {
+                continue;
+            };
+            let Some(first) = arr.first().and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some((name, ver)) = parse_name_version(first) else {
+                continue;
+            };
+            let Some(deps_obj) = arr.get(3).and_then(|v| v.as_object()) else {
+                continue;
+            };
             let edges: Vec<DepEdge> = deps_obj
                 .iter()
                 .map(|(n, v)| DepEdge {
@@ -180,7 +183,8 @@ mod tests {
 
     #[test]
     fn test_strip_jsonc_preserves_strings() {
-        let input = r#"{"url": "https://example.com/path", "comment": "has // slashes and /* stars */"}"#;
+        let input =
+            r#"{"url": "https://example.com/path", "comment": "has // slashes and /* stars */"}"#;
         let result = strip_jsonc_comments(input);
         assert!(result.contains("https://example.com/path"));
         assert!(result.contains("has // slashes and /* stars */"));

@@ -54,10 +54,20 @@ pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
 
     if version >= 3 || (version == 2 && !lockfile.packages.is_empty()) {
         // v3 (or v2 with packages field): use `packages` map
-        parse_v3_packages(&lockfile.packages, &mut deps, &mut dev_deps, &mut all_packages);
+        parse_v3_packages(
+            &lockfile.packages,
+            &mut deps,
+            &mut dev_deps,
+            &mut all_packages,
+        );
     } else {
         // v1 (or v2 without packages): use legacy `dependencies` map
-        parse_v1_dependencies(&lockfile.dependencies, &mut deps, &mut dev_deps, &mut all_packages);
+        parse_v1_dependencies(
+            &lockfile.dependencies,
+            &mut deps,
+            &mut dev_deps,
+            &mut all_packages,
+        );
     }
 
     Ok(DependencyGraph {
@@ -85,12 +95,17 @@ pub fn parse_with_edges(content: &str) -> Result<DependencyGraph, LockpickError>
                 .rfind("node_modules/")
                 .map(|pos| &key[pos + "node_modules/".len()..])
                 .unwrap_or(key);
-            let Some(ref ver) = entry.version else { continue };
+            let Some(ref ver) = entry.version else {
+                continue;
+            };
             let pkg_key = format!("{name}@{ver}");
             let edges: Vec<DepEdge> = entry
                 .dependencies
                 .iter()
-                .map(|(n, v)| DepEdge { name: n.clone(), version: v.clone() })
+                .map(|(n, v)| DepEdge {
+                    name: n.clone(),
+                    version: v.clone(),
+                })
                 .collect();
             graph.dep_edges.insert(pkg_key, edges);
         }

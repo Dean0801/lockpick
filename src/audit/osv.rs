@@ -110,9 +110,7 @@ pub async fn scan_vulnerabilities(
     let mut uncached: Vec<(String, String)> = Vec::new();
 
     for (name, version) in &all_pkgs {
-        if use_cache
-            && let Some(vulns) = crate::cache::osv::get(name, version, ttl)
-        {
+        if use_cache && let Some(vulns) = crate::cache::osv::get(name, version, ttl) {
             if !vulns.is_empty() {
                 cached_reports.push(VulnReport {
                     package: name.clone(),
@@ -158,9 +156,7 @@ pub async fn scan_vulnerabilities(
                     batch_idx + 1
                 );
                 // Fill placeholder empty entries so pkg_order indices stay aligned
-                all_results.extend(
-                    (0..chunk.len()).map(|_| OsvResultEntry { vulns: Vec::new() }),
-                );
+                all_results.extend((0..chunk.len()).map(|_| OsvResultEntry { vulns: Vec::new() }));
             }
         }
     }
@@ -175,9 +171,7 @@ pub async fn scan_vulnerabilities(
         let vulns: Vec<Vulnerability> = entry.vulns.iter().map(convert_vuln).collect();
 
         // Write to cache (even empty results, so we don't re-query clean packages)
-        if use_cache
-            && let Err(e) = crate::cache::osv::set(name, version, &vulns)
-        {
+        if use_cache && let Err(e) = crate::cache::osv::set(name, version, &vulns) {
             eprintln!("warning: failed to write OSV cache for {name}@{version}: {e}");
         }
 
@@ -237,16 +231,15 @@ async fn send_batch_with_retry(
 
         // 5xx server errors are retryable
         if status.is_server_error() {
-            last_err = LockpickError::Network(format!(
-                "OSV API returned server error: {status}"
-            ));
+            last_err = LockpickError::Network(format!("OSV API returned server error: {status}"));
             continue;
         }
 
         // Success — parse the response body
-        let batch: OsvBatchResponse = resp.json().await.map_err(|e| {
-            LockpickError::Network(format!("Failed to parse OSV response: {e}"))
-        })?;
+        let batch: OsvBatchResponse = resp
+            .json()
+            .await
+            .map_err(|e| LockpickError::Network(format!("Failed to parse OSV response: {e}")))?;
 
         return Ok(batch);
     }

@@ -381,7 +381,11 @@ export default defineConfig({ plugins: [react()] });
         )
         .unwrap();
 
-        fs::write(dir.path().join(".eslintrc.json"), r#"{"plugins": ["react"]}"#).unwrap();
+        fs::write(
+            dir.path().join(".eslintrc.json"),
+            r#"{"plugins": ["react"]}"#,
+        )
+        .unwrap();
 
         let deps = extract_config_deps(dir.path());
         assert!(deps.contains("@vitejs/plugin-react"));
@@ -397,14 +401,8 @@ export default defineConfig({ plugins: [react()] });
         }"#;
         let stripped = strip_jsonc_comments(input);
         let parsed: serde_json::Value = serde_json::from_str(&stripped).unwrap();
-        assert_eq!(
-            parsed["plugins"][0].as_str(),
-            Some("react")
-        );
-        assert_eq!(
-            parsed["extends"][0].as_str(),
-            Some("airbnb")
-        );
+        assert_eq!(parsed["plugins"][0].as_str(), Some("react"));
+        assert_eq!(parsed["extends"][0].as_str(), Some("airbnb"));
     }
 
     #[test]

@@ -64,7 +64,11 @@ impl DepTree {
 
     /// Focus mode: keep only paths containing the specified package.
     pub fn focus(&self, package: &str) -> Self {
-        let roots = self.roots.iter().filter_map(|r| filter_node(r, package)).collect();
+        let roots = self
+            .roots
+            .iter()
+            .filter_map(|r| filter_node(r, package))
+            .collect();
         DepTree { roots }
     }
 }
@@ -106,7 +110,17 @@ fn build_node(
         .get(&pkg_key)
         .map(|deps| {
             deps.iter()
-                .map(|e| build_node(&e.name, &e.version, DepType::Prod, edges, visited, max_depth, depth + 1))
+                .map(|e| {
+                    build_node(
+                        &e.name,
+                        &e.version,
+                        DepType::Prod,
+                        edges,
+                        visited,
+                        max_depth,
+                        depth + 1,
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -126,7 +140,11 @@ fn filter_node(node: &TreeNode, target: &str) -> Option<TreeNode> {
     if node.name == target {
         return Some(node.clone());
     }
-    let filtered: Vec<TreeNode> = node.children.iter().filter_map(|c| filter_node(c, target)).collect();
+    let filtered: Vec<TreeNode> = node
+        .children
+        .iter()
+        .filter_map(|c| filter_node(c, target))
+        .collect();
     if filtered.is_empty() {
         return None;
     }
