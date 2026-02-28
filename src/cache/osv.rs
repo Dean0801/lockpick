@@ -25,7 +25,13 @@ fn default_cache_dir() -> PathBuf {
 /// Sanitize a string for safe use in filenames: keep alphanumeric, '-', '.', '_' only.
 fn sanitize_for_filename(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -45,7 +51,12 @@ fn now_secs() -> u64 {
 
 // --- Internal functions that accept a custom cache dir (for testing) ---
 
-fn get_from(cache_dir: &Path, name: &str, version: &str, ttl_secs: u64) -> Option<Vec<Vulnerability>> {
+fn get_from(
+    cache_dir: &Path,
+    name: &str,
+    version: &str,
+    ttl_secs: u64,
+) -> Option<Vec<Vulnerability>> {
     let path = cache_dir.join(cache_filename(name, version));
     let data = fs::read_to_string(&path).ok()?;
     let entry: CacheEntry = serde_json::from_str(&data).ok()?;
@@ -57,7 +68,12 @@ fn get_from(cache_dir: &Path, name: &str, version: &str, ttl_secs: u64) -> Optio
     }
 }
 
-fn set_to(cache_dir: &Path, name: &str, version: &str, vulns: &[Vulnerability]) -> Result<(), LockpickError> {
+fn set_to(
+    cache_dir: &Path,
+    name: &str,
+    version: &str,
+    vulns: &[Vulnerability],
+) -> Result<(), LockpickError> {
     fs::create_dir_all(cache_dir)?;
     let entry = CacheEntry {
         vulns: vulns.to_vec(),
