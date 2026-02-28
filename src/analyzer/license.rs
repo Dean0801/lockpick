@@ -21,19 +21,18 @@ fn extract_license_from_json(pkg_json: &Value) -> String {
     }
 
     // Format 2: "license": { "type": "MIT" }
-    if let Some(license_obj) = pkg_json.get("license").and_then(|v| v.as_object()) {
-        if let Some(t) = license_obj.get("type").and_then(|v| v.as_str()) {
-            return normalize_license(t);
-        }
+    if let Some(license_obj) = pkg_json.get("license").and_then(|v| v.as_object())
+        && let Some(t) = license_obj.get("type").and_then(|v| v.as_str())
+    {
+        return normalize_license(t);
     }
 
     // Format 3: "licenses": [{ "type": "MIT" }]
-    if let Some(licenses_arr) = pkg_json.get("licenses").and_then(|v| v.as_array()) {
-        if let Some(first) = licenses_arr.first() {
-            if let Some(t) = first.get("type").and_then(|v| v.as_str()) {
-                return normalize_license(t);
-            }
-        }
+    if let Some(licenses_arr) = pkg_json.get("licenses").and_then(|v| v.as_array())
+        && let Some(first) = licenses_arr.first()
+        && let Some(t) = first.get("type").and_then(|v| v.as_str())
+    {
+        return normalize_license(t);
     }
 
     "UNKNOWN".to_string()
@@ -193,6 +192,7 @@ mod tests {
             dev_dependencies,
             lockfile_type: LockfileType::Npm,
             all_packages: HashMap::new(),
+            dep_edges: HashMap::new(),
         }
     }
 

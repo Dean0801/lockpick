@@ -110,17 +110,17 @@ pub async fn scan_vulnerabilities(
     let mut uncached: Vec<(String, String)> = Vec::new();
 
     for (name, version) in &all_pkgs {
-        if use_cache {
-            if let Some(vulns) = crate::cache::osv::get(name, version, ttl) {
-                if !vulns.is_empty() {
-                    cached_reports.push(VulnReport {
-                        package: name.clone(),
-                        version: version.clone(),
-                        vulns,
-                    });
-                }
-                continue;
+        if use_cache
+            && let Some(vulns) = crate::cache::osv::get(name, version, ttl)
+        {
+            if !vulns.is_empty() {
+                cached_reports.push(VulnReport {
+                    package: name.clone(),
+                    version: version.clone(),
+                    vulns,
+                });
             }
+            continue;
         }
         uncached.push((name.clone(), version.clone()));
     }
@@ -175,10 +175,10 @@ pub async fn scan_vulnerabilities(
         let vulns: Vec<Vulnerability> = entry.vulns.iter().map(convert_vuln).collect();
 
         // Write to cache (even empty results, so we don't re-query clean packages)
-        if use_cache {
-            if let Err(e) = crate::cache::osv::set(name, version, &vulns) {
-                eprintln!("warning: failed to write OSV cache for {name}@{version}: {e}");
-            }
+        if use_cache
+            && let Err(e) = crate::cache::osv::set(name, version, &vulns)
+        {
+            eprintln!("warning: failed to write OSV cache for {name}@{version}: {e}");
         }
 
         if !vulns.is_empty() {

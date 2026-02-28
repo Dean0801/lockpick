@@ -154,6 +154,7 @@ pub async fn run_monorepo(
             dev_dependencies: pkg_dev_deps,
             lockfile_type: graph.lockfile_type.clone(),
             all_packages: graph.all_packages.clone(),
+            dep_edges: HashMap::new(),
         };
 
         let opts = build_opts(pkg_dir, &pkg_graph, cfg, i18n);
@@ -199,21 +200,21 @@ pub async fn run_monorepo(
     all_has_unused || has_vulns
 }
 
-/// Run single-package analysis. Returns true if there are issues.
+/// Run single-package analysis. Returns (has_issues, analysis_result).
 pub async fn run_single(
     project_path: &Path,
     graph: &DependencyGraph,
     cfg: &RunConfig<'_>,
     i18n: &I18n,
     reporter: &dyn Reporter,
-) -> bool {
+) -> (bool, Option<AnalysisResult>) {
     let opts = build_opts(project_path, graph, cfg, i18n);
 
     let mut result = match analyze_package(&opts) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Error: {e}");
-            return true;
+            return (true, None);
         }
     };
 
@@ -226,17 +227,18 @@ pub async fn run_single(
 
     // Fix mode
     if cfg.run_fix {
-        return run_fix_mode(project_path, &result, graph, cfg, i18n);
+        let has = run_fix_mode(project_path, &result, graph, cfg, i18n);
+        return (has, Some(result));
     }
 
     if let Err(e) = reporter.report(&result, i18n) {
         eprintln!("Report error: {e}");
-        return true;
+        return (true, Some(result));
     }
 
     let has_unused = result.unused.as_ref().is_some_and(|u| !u.unused.is_empty());
     let has_vulns = result.vulns.as_ref().is_some_and(|v| !v.is_empty());
-    has_unused || has_vulns
+    (has_unused || has_vulns, Some(result))
 }
 
 /// Handle fix mode: dry-run or actual removal. Returns true if there are issues.

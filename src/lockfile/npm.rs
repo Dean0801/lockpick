@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::error::LockpickError;
-use crate::{DependencyGraph, LockfileType, PackageInfo};
+use crate::{DepEdge, DependencyGraph, LockfileType, PackageInfo};
 
 /// Represents a single package entry in the v3 `packages` map.
 #[derive(Debug, Deserialize)]
@@ -12,6 +12,8 @@ pub struct NpmPackageEntry {
     pub integrity: Option<String>,
     #[serde(default)]
     pub dev: bool,
+    #[serde(default)]
+    pub dependencies: HashMap<String, String>,
 }
 
 /// Top-level package-lock.json structure (supports v1/v2/v3).
@@ -63,7 +65,37 @@ pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
         dev_dependencies: dev_deps,
         lockfile_type: LockfileType::Npm,
         all_packages,
+        dep_edges: HashMap::new(),
     })
+}
+
+/// Parse package-lock.json with transitive dependency edges.
+pub fn parse_with_edges(content: &str) -> Result<DependencyGraph, LockpickError> {
+    let lockfile: NpmLockfile = serde_json::from_str(content)
+        .map_err(|e| LockpickError::Parse(format!("Failed to parse package-lock.json: {e}")))?;
+    let mut graph = parse(content)?;
+
+    let version = lockfile.lockfile_version.unwrap_or(1);
+    if version >= 2 {
+        for (key, entry) in &lockfile.packages {
+            if key.is_empty() || entry.dependencies.is_empty() {
+                continue;
+            }
+            let name = key
+                .rfind("node_modules/")
+                .map(|pos| &key[pos + "node_modules/".len()..])
+                .unwrap_or(key);
+            let Some(ref ver) = entry.version else { continue };
+            let pkg_key = format!("{name}@{ver}");
+            let edges: Vec<DepEdge> = entry
+                .dependencies
+                .iter()
+                .map(|(n, v)| DepEdge { name: n.clone(), version: v.clone() })
+                .collect();
+            graph.dep_edges.insert(pkg_key, edges);
+        }
+    }
+    Ok(graph)
 }
 
 /// Parse v3 (and v2 with packages) format
@@ -206,5 +238,28 @@ mod tests {
         assert!(graph.dependencies.contains_key("lodash"));
         assert_eq!(graph.dev_dependencies.len(), 1);
         assert!(graph.dev_dependencies.contains_key("typescript"));
+    }
+
+    #[test]
+    fn test_parse_with_edges_v3() {
+        let content = r#"{
+            "lockfileVersion": 3,
+            "packages": {
+                "": { "name": "test", "version": "1.0.0" },
+                "node_modules/react": {
+                    "version": "18.2.0",
+                    "dependencies": { "loose-envify": "^1.4.0" }
+                },
+                "node_modules/loose-envify": {
+                    "version": "1.4.0",
+                    "dependencies": { "js-tokens": "^4.0.0" }
+                },
+                "node_modules/js-tokens": { "version": "4.0.0" }
+            }
+        }"#;
+        let graph = parse_with_edges(content).unwrap();
+        assert_eq!(graph.dep_edges["react@18.2.0"].len(), 1);
+        assert_eq!(graph.dep_edges["react@18.2.0"][0].name, "loose-envify");
+        assert!(!graph.dep_edges.contains_key("js-tokens@4.0.0"));
     }
 }

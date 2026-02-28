@@ -98,6 +98,7 @@ mod tests {
             dev_dependencies: dev,
             lockfile_type: crate::LockfileType::Pnpm,
             all_packages: HashMap::new(),
+            dep_edges: HashMap::new(),
         }
     }
 

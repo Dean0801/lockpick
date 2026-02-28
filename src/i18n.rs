@@ -78,6 +78,9 @@ impl I18n {
                 "fix_done" => "移除完成",
                 "fix_failed" => "移除失败",
                 "fix_nothing" => "没有需要移除的依赖",
+                "diff_summary" => "差异摘要",
+                "diff_new" => "新增",
+                "diff_resolved" => "已解决",
                 _ => key,
             },
             Lang::En => match key {
@@ -126,6 +129,9 @@ impl I18n {
                 "fix_done" => "Removal complete",
                 "fix_failed" => "Removal failed",
                 "fix_nothing" => "No dependencies to remove",
+                "diff_summary" => "Diff Summary",
+                "diff_new" => "new",
+                "diff_resolved" => "resolved",
                 _ => key,
             },
         }

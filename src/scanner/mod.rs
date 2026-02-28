@@ -21,10 +21,10 @@ pub fn discover_source_files(root: &Path) -> Result<Vec<PathBuf>, LockpickError>
 
     let walker = WalkDir::new(root).into_iter().filter_entry(|entry| {
         // Skip excluded directories before descending into them
-        if entry.file_type().is_dir() {
-            if let Some(name) = entry.file_name().to_str() {
-                return !EXCLUDE_DIRS.contains(&name);
-            }
+        if entry.file_type().is_dir()
+            && let Some(name) = entry.file_name().to_str()
+        {
+            return !EXCLUDE_DIRS.contains(&name);
         }
         true
     });
@@ -33,10 +33,10 @@ pub fn discover_source_files(root: &Path) -> Result<Vec<PathBuf>, LockpickError>
         let entry = entry.map_err(|e| LockpickError::Io(e.into()))?;
         if entry.file_type().is_file() {
             let path = entry.into_path();
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if SOURCE_EXTENSIONS.contains(&ext) {
-                    files.push(path);
-                }
+            if let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && SOURCE_EXTENSIONS.contains(&ext)
+            {
+                files.push(path);
             }
         }
     }

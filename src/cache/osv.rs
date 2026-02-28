@@ -17,7 +17,7 @@ struct CacheEntry {
 /// Falls back to the system temp directory when no user cache dir is available.
 fn default_cache_dir() -> PathBuf {
     dirs::cache_dir()
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("lockpick")
         .join("osv")
 }

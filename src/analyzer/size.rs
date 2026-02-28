@@ -96,6 +96,7 @@ mod tests {
             dev_dependencies: HashMap::new(),
             lockfile_type: LockfileType::Npm,
             all_packages: HashMap::new(),
+            dep_edges: HashMap::new(),
         };
 
         let report = analyze_size(tmp.path(), &graph);
@@ -123,6 +124,7 @@ mod tests {
             dev_dependencies: HashMap::new(),
             lockfile_type: LockfileType::Npm,
             all_packages: HashMap::new(),
+            dep_edges: HashMap::new(),
         };
 
         let report = analyze_size(tmp.path(), &graph);
@@ -153,6 +155,7 @@ mod tests {
             dev_dependencies: dev_deps,
             lockfile_type: LockfileType::Npm,
             all_packages: HashMap::new(),
+            dep_edges: HashMap::new(),
         };
 
         let report = analyze_size(tmp.path(), &graph);

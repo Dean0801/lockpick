@@ -10,8 +10,16 @@ use crate::DependencyGraph;
 use crate::error::LockpickError;
 
 /// Auto-detect and parse the lockfile in the given project directory.
-/// Checks for pnpm-lock.yaml, bun.lock, package-lock.json, yarn.lock in that order.
 pub fn detect_and_parse(project_dir: &Path) -> Result<DependencyGraph, LockpickError> {
+    detect_and_parse_inner(project_dir, false)
+}
+
+/// Parse lockfile with transitive dependency edges (for tree command).
+pub fn detect_and_parse_with_edges(project_dir: &Path) -> Result<DependencyGraph, LockpickError> {
+    detect_and_parse_inner(project_dir, true)
+}
+
+fn detect_and_parse_inner(project_dir: &Path, with_edges: bool) -> Result<DependencyGraph, LockpickError> {
     let candidates = [
         ("pnpm-lock.yaml", "pnpm" as &str),
         ("bun.lock", "bun"),
@@ -24,13 +32,20 @@ pub fn detect_and_parse(project_dir: &Path) -> Result<DependencyGraph, LockpickE
         if path.exists() {
             let content = std::fs::read_to_string(&path)
                 .map_err(LockpickError::Io)?;
-            return match *kind {
-                "pnpm" => pnpm::parse(&content),
-                "bun" => bun::parse(&content),
-                "npm" => npm::parse(&content),
-                "yarn" => {
+            return match (*kind, with_edges) {
+                ("pnpm", false) => pnpm::parse(&content),
+                ("pnpm", true) => pnpm::parse_with_edges(&content),
+                ("bun", false) => bun::parse(&content),
+                ("bun", true) => bun::parse_with_edges(&content),
+                ("npm", false) => npm::parse(&content),
+                ("npm", true) => npm::parse_with_edges(&content),
+                ("yarn", false) => {
                     let dev_names = read_dev_dep_names(project_dir);
                     yarn::parse_with_dev_names(&content, &dev_names)
+                }
+                ("yarn", true) => {
+                    let dev_names = read_dev_dep_names(project_dir);
+                    yarn::parse_with_edges(&content, &dev_names)
                 }
                 _ => unreachable!(),
             };

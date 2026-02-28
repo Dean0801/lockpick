@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::error::LockpickError;
-use crate::{DependencyGraph, PackageInfo};
+use crate::{DepEdge, DependencyGraph, PackageInfo};
 
 /// Top-level pnpm-lock.yaml v9 structure
 #[derive(Debug, Deserialize)]
@@ -13,6 +13,8 @@ pub struct PnpmLockfile {
     pub importers: HashMap<String, PnpmImporter>,
     #[serde(default)]
     pub packages: HashMap<String, PnpmPackage>,
+    #[serde(default)]
+    pub snapshots: HashMap<String, PnpmSnapshot>,
 }
 
 /// An importer entry (workspace project)
@@ -45,6 +47,15 @@ pub struct PnpmResolution {
     pub integrity: Option<String>,
 }
 
+/// A snapshot entry containing transitive dependency info
+#[derive(Debug, Deserialize)]
+pub struct PnpmSnapshot {
+    #[serde(default)]
+    pub dependencies: HashMap<String, String>,
+    #[serde(default)]
+    pub optional_dependencies: HashMap<String, String>,
+}
+
 /// Build all_packages map from the packages section keys (e.g. "react@18.2.0")
 fn build_all_packages(packages: &HashMap<String, PnpmPackage>) -> HashMap<String, Vec<String>> {
     let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
@@ -63,11 +74,12 @@ fn build_all_packages(packages: &HashMap<String, PnpmPackage>) -> HashMap<String
     all_packages
 }
 
-/// Parse pnpm-lock.yaml content into DependencyGraph (merges all importers)
-pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
-    let lockfile: PnpmLockfile = serde_yml::from_str(content)
-        .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))?;
+fn deserialize_lockfile(content: &str) -> Result<PnpmLockfile, LockpickError> {
+    serde_yml::from_str(content)
+        .map_err(|e| LockpickError::Parse(format!("Failed to parse pnpm-lock.yaml: {e}")))
+}
 
+fn graph_from_lockfile(lockfile: &PnpmLockfile) -> Result<DependencyGraph, LockpickError> {
     if lockfile.importers.is_empty() {
         return Err(LockpickError::Parse(
             "No importers found in pnpm-lock.yaml".into(),
@@ -77,20 +89,45 @@ pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
     let mut deps = HashMap::new();
     let mut dev_deps = HashMap::new();
 
-    // Merge all importers for root-level analysis
     for importer in lockfile.importers.values() {
         collect_importer_deps(importer, &lockfile.packages, &mut deps, &mut dev_deps);
     }
-
-    // Build all_packages from the packages section
-    let all_packages = build_all_packages(&lockfile.packages);
 
     Ok(DependencyGraph {
         dependencies: deps,
         dev_dependencies: dev_deps,
         lockfile_type: crate::LockfileType::Pnpm,
-        all_packages,
+        all_packages: build_all_packages(&lockfile.packages),
+        dep_edges: HashMap::new(),
     })
+}
+
+/// Parse pnpm-lock.yaml content into DependencyGraph (merges all importers)
+pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
+    graph_from_lockfile(&deserialize_lockfile(content)?)
+}
+
+/// Parse pnpm-lock.yaml with transitive dependency edges (for tree command).
+pub fn parse_with_edges(content: &str) -> Result<DependencyGraph, LockpickError> {
+    let lockfile = deserialize_lockfile(content)?;
+    let mut graph = graph_from_lockfile(&lockfile)?;
+
+    for (key, snapshot) in &lockfile.snapshots {
+        let edges: Vec<DepEdge> = snapshot
+            .dependencies
+            .iter()
+            .chain(snapshot.optional_dependencies.iter())
+            .map(|(name, version)| DepEdge {
+                name: name.clone(),
+                version: version.clone(),
+            })
+            .collect();
+        if !edges.is_empty() {
+            graph.dep_edges.insert(key.clone(), edges);
+        }
+    }
+
+    Ok(graph)
 }
 
 /// Collect deps from a single importer into the provided maps
@@ -147,6 +184,7 @@ pub fn parse_for_workspace(
         dev_dependencies: dev_deps,
         lockfile_type: crate::LockfileType::Pnpm,
         all_packages,
+        dep_edges: HashMap::new(),
     })
 }
 
@@ -187,5 +225,21 @@ mod tests {
     fn test_parse_invalid_yaml() {
         let result = parse("not: [valid: yaml: {{");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_with_edges_snapshots() {
+        let content = include_str!("../../tests/fixtures/pnpm-lock.yaml");
+        let graph = parse_with_edges(content).unwrap();
+
+        let react_edges = &graph.dep_edges["react@18.2.0"];
+        assert_eq!(react_edges.len(), 1);
+        assert_eq!(react_edges[0].name, "loose-envify");
+
+        let le_edges = &graph.dep_edges["loose-envify@1.4.0"];
+        assert_eq!(le_edges.len(), 1);
+        assert_eq!(le_edges[0].name, "js-tokens");
+
+        assert!(!graph.dep_edges.contains_key("lodash@4.17.21"));
     }
 }

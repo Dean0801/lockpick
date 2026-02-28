@@ -46,6 +46,7 @@ mod tests {
             dev_dependencies: HashMap::new(),
             lockfile_type: LockfileType::Pnpm,
             all_packages,
+            dep_edges: HashMap::new(),
         };
 
         let report = detect_duplicates(&graph);
@@ -66,6 +67,7 @@ mod tests {
             dev_dependencies: HashMap::new(),
             lockfile_type: LockfileType::Pnpm,
             all_packages,
+            dep_edges: HashMap::new(),
         };
 
         let report = detect_duplicates(&graph);

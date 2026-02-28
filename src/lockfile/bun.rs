@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crate::error::LockpickError;
 use crate::utils::strip_jsonc_comments;
-use crate::{DependencyGraph, LockfileType, PackageInfo};
+use crate::{DepEdge, DependencyGraph, LockfileType, PackageInfo};
+
+/// Resolved package info: (version, optional integrity hash)
+type ResolvedMap = HashMap<String, (String, Option<String>)>;
 
 /// Parse the `name@version` format used in bun.lock package entries.
 /// Handles scoped packages like `@scope/pkg@1.0.0`.
@@ -25,23 +28,22 @@ fn parse_name_version(s: &str) -> Option<(&str, &str)> {
 /// third element of each package array, if present.
 fn build_resolved_map(
     root: &serde_json::Value,
-) -> (HashMap<String, Vec<String>>, HashMap<String, (String, Option<String>)>) {
+) -> (HashMap<String, Vec<String>>, ResolvedMap) {
     let mut all_packages: HashMap<String, Vec<String>> = HashMap::new();
-    let mut resolved: HashMap<String, (String, Option<String>)> = HashMap::new();
+    let mut resolved: ResolvedMap = HashMap::new();
 
     if let Some(packages) = root.get("packages").and_then(|p| p.as_object()) {
         for (_key, value) in packages {
-            if let Some(arr) = value.as_array() {
-                if let Some(first) = arr.first().and_then(|v| v.as_str()) {
-                    if let Some((name, version)) = parse_name_version(first) {
-                        let integrity = arr.get(2).and_then(|v| v.as_str()).map(String::from);
-                        all_packages
-                            .entry(name.to_string())
-                            .or_default()
-                            .push(version.to_string());
-                        resolved.insert(name.to_string(), (version.to_string(), integrity));
-                    }
-                }
+            if let Some(arr) = value.as_array()
+                && let Some(first) = arr.first().and_then(|v| v.as_str())
+                && let Some((name, version)) = parse_name_version(first)
+            {
+                let integrity = arr.get(2).and_then(|v| v.as_str()).map(String::from);
+                all_packages
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(version.to_string());
+                resolved.insert(name.to_string(), (version.to_string(), integrity));
             }
         }
     }
@@ -53,7 +55,7 @@ fn build_resolved_map(
 /// Replaces specifiers (e.g. "^18.2.0") with actual resolved versions (e.g. "18.2.0").
 fn backfill_versions(
     target: &mut HashMap<String, PackageInfo>,
-    resolved: &HashMap<String, (String, Option<String>)>,
+    resolved: &ResolvedMap,
 ) {
     for (name, info) in target.iter_mut() {
         if let Some((version, integrity)) = resolved.get(name.as_str()) {
@@ -100,7 +102,36 @@ pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
         dev_dependencies: dev_deps,
         lockfile_type: LockfileType::Bun,
         all_packages,
+        dep_edges: HashMap::new(),
     })
+}
+
+/// Parse bun.lock with transitive dependency edges.
+pub fn parse_with_edges(content: &str) -> Result<DependencyGraph, LockpickError> {
+    let stripped = strip_jsonc_comments(content);
+    let root: serde_json::Value = serde_json::from_str(&stripped)
+        .map_err(|e| LockpickError::Parse(format!("Failed to parse bun.lock: {e}")))?;
+    let mut graph = parse(content)?;
+
+    if let Some(packages) = root.get("packages").and_then(|p| p.as_object()) {
+        for (_key, value) in packages {
+            let Some(arr) = value.as_array() else { continue };
+            let Some(first) = arr.first().and_then(|v| v.as_str()) else { continue };
+            let Some((name, ver)) = parse_name_version(first) else { continue };
+            let Some(deps_obj) = arr.get(3).and_then(|v| v.as_object()) else { continue };
+            let edges: Vec<DepEdge> = deps_obj
+                .iter()
+                .map(|(n, v)| DepEdge {
+                    name: n.clone(),
+                    version: v.as_str().unwrap_or("*").to_string(),
+                })
+                .collect();
+            if !edges.is_empty() {
+                graph.dep_edges.insert(format!("{name}@{ver}"), edges);
+            }
+        }
+    }
+    Ok(graph)
 }
 
 /// Extract dependency entries from a workspace object field into the target map.

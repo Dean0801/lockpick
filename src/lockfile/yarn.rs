@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::error::LockpickError;
-use crate::{DependencyGraph, LockfileType, PackageInfo};
+use crate::{DepEdge, DependencyGraph, LockfileType, PackageInfo};
 
 /// Parse yarn.lock v1 content into DependencyGraph
 pub fn parse(content: &str) -> Result<DependencyGraph, LockpickError> {
@@ -100,7 +100,61 @@ pub fn parse_with_dev_names(
         dev_dependencies,
         lockfile_type: LockfileType::Yarn,
         all_packages,
+        dep_edges: HashMap::new(),
     })
+}
+
+/// Parse yarn.lock with transitive dependency edges.
+pub fn parse_with_edges(
+    content: &str,
+    dev_names: &HashSet<String>,
+) -> Result<DependencyGraph, LockpickError> {
+    let mut graph = parse_with_dev_names(content, dev_names)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+        if line.starts_with('#') || line.trim().is_empty() {
+            i += 1;
+            continue;
+        }
+        if !line.starts_with(' ') && line.ends_with(':') {
+            let header = line.trim_end_matches(':').trim();
+            let name = extract_package_name(header).unwrap_or_default();
+            let mut version = String::new();
+            let mut edges = Vec::new();
+            let mut in_deps = false;
+
+            i += 1;
+            while i < lines.len() && lines[i].starts_with(' ') {
+                let trimmed = lines[i].trim();
+                if trimmed.starts_with("version ") {
+                    version = extract_quoted_value(trimmed, "version")
+                        .unwrap_or_default();
+                } else if trimmed == "dependencies:" {
+                    in_deps = true;
+                } else if in_deps && trimmed.contains(' ') {
+                    let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+                    if parts.len() == 2 {
+                        edges.push(DepEdge {
+                            name: parts[0].trim_matches('"').to_string(),
+                            version: parts[1].trim_matches('"').to_string(),
+                        });
+                    }
+                } else {
+                    in_deps = false;
+                }
+                i += 1;
+            }
+            if !edges.is_empty() && !version.is_empty() {
+                graph.dep_edges.insert(format!("{name}@{version}"), edges);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    Ok(graph)
 }
 
 /// Extract package name from a yarn.lock entry header.

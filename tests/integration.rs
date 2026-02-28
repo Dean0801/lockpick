@@ -157,3 +157,86 @@ fn test_json_reporter_output() {
     assert!(parsed["unused"]["unused"].is_array());
     assert_eq!(parsed["unused"]["unused"][0]["name"], "foo");
 }
+
+/// Threshold evaluation integration test
+#[test]
+fn test_threshold_evaluation() {
+    use lockpick::config::types::Thresholds;
+    use lockpick::threshold::evaluate;
+
+    let result = AnalysisResult {
+        unused: Some(lockpick::UnusedReport {
+            unused: vec![lockpick::UnusedDep {
+                name: "foo".into(),
+                version: "1.0.0".into(),
+                dep_type: lockpick::DepType::Prod,
+            }],
+        }),
+        vulns: None,
+        duplicates: None,
+        size: None,
+        license: None,
+    };
+
+    let strict = Thresholds {
+        max_critical: -1,
+        max_high: -1,
+        max_unused: 0,
+        max_duplicates: -1,
+        fail_on_license: false,
+    };
+    assert!(evaluate(&result, &strict));
+
+    let relaxed = Thresholds::default();
+    assert!(!evaluate(&result, &relaxed));
+}
+
+/// Diff should detect changes between baseline and current
+#[test]
+fn test_diff_integration() {
+    let baseline = AnalysisResult {
+        unused: Some(lockpick::UnusedReport {
+            unused: vec![lockpick::UnusedDep {
+                name: "lodash".into(),
+                version: "4.17.21".into(),
+                dep_type: lockpick::DepType::Prod,
+            }],
+        }),
+        vulns: None,
+        duplicates: None,
+        size: None,
+        license: None,
+    };
+
+    let current = AnalysisResult {
+        unused: Some(lockpick::UnusedReport { unused: vec![] }),
+        vulns: None,
+        duplicates: None,
+        size: None,
+        license: None,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let baseline_path = dir.path().join("baseline.json");
+    std::fs::write(&baseline_path, serde_json::to_string(&baseline).unwrap()).unwrap();
+
+    let report = lockpick::diff::compute_diff(&baseline_path, &current).unwrap();
+    assert_eq!(report.unused.removed.len(), 1);
+    assert_eq!(report.unused.removed[0].name, "lodash");
+    assert_eq!(report.summary.resolved_issues, 1);
+    assert_eq!(report.summary.new_issues, 0);
+}
+
+/// Tree building from lockfile with edges
+#[test]
+fn test_tree_from_pnpm_fixture() {
+    let content = std::fs::read_to_string("tests/fixtures/pnpm-lock.yaml").unwrap();
+    let graph = lockpick::lockfile::pnpm::parse_with_edges(&content).unwrap();
+    let tree = lockpick::tree::DepTree::from_graph(&graph);
+
+    assert!(!tree.roots.is_empty());
+    // react should have loose-envify as child (from snapshots)
+    let react = tree.roots.iter().find(|r| r.name == "react").unwrap();
+    assert_eq!(react.children.len(), 1);
+    assert_eq!(react.children[0].name, "loose-envify");
+}

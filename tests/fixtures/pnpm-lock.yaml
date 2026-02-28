@@ -35,3 +35,15 @@ packages:
 
   '@types/react@18.2.48':
     resolution: {integrity: sha512-fake-types-react-integrity}
+
+snapshots:
+  react@18.2.0:
+    dependencies:
+      loose-envify: 1.4.0
+  loose-envify@1.4.0:
+    dependencies:
+      js-tokens: 4.0.0
+  js-tokens@4.0.0: {}
+  lodash@4.17.21: {}
+  typescript@5.3.3: {}
+  '@types/react@18.2.48': {}

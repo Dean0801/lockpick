@@ -11,6 +11,9 @@ pub mod i18n;
 pub mod lockfile;
 pub mod report;
 pub mod scanner;
+pub mod threshold;
+pub mod tree;
+pub mod diff;
 pub mod workspace;
 
 use serde::{Deserialize, Serialize};
@@ -86,6 +89,13 @@ pub struct LicenseReport {
     pub violations: Vec<LicenseViolation>,
 }
 
+/// Dependency edge: package A depends on package B
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DepEdge {
+    pub name: String,
+    pub version: String,
+}
+
 /// Package metadata from lockfile
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageInfo {
@@ -101,6 +111,10 @@ pub struct DependencyGraph {
     pub dev_dependencies: HashMap<String, PackageInfo>,
     pub lockfile_type: LockfileType,
     pub all_packages: HashMap<String, Vec<String>>,
+    /// Transitive dependency edges: key = "pkg@version", value = direct deps.
+    /// Only populated when needed (e.g. tree command). Empty by default.
+    #[serde(default)]
+    pub dep_edges: HashMap<String, Vec<DepEdge>>,
 }
 
 /// Vulnerability severity level
@@ -184,6 +198,7 @@ mod tests {
             dev_dependencies: HashMap::new(),
             lockfile_type: LockfileType::Pnpm,
             all_packages: HashMap::new(),
+            dep_edges: HashMap::new(),
         };
         assert_eq!(graph.lockfile_type, LockfileType::Pnpm);
         assert!(graph.all_packages.is_empty());
@@ -254,5 +269,23 @@ mod tests {
         let json = serde_json::to_string(&lt).unwrap();
         let deserialized: LockfileType = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, LockfileType::Npm);
+    }
+
+    #[test]
+    fn test_dep_edge_struct() {
+        let edge = DepEdge {
+            name: "lodash".into(),
+            version: "4.17.21".into(),
+        };
+        assert_eq!(edge.name, "lodash");
+        assert_eq!(edge.version, "4.17.21");
+    }
+
+    #[test]
+    fn test_dependency_graph_dep_edges_serde_default() {
+        // Old JSON without dep_edges should deserialize with empty dep_edges
+        let json = r#"{"dependencies":{},"dev_dependencies":{},"lockfile_type":"Pnpm","all_packages":{}}"#;
+        let graph: DependencyGraph = serde_json::from_str(json).unwrap();
+        assert!(graph.dep_edges.is_empty());
     }
 }

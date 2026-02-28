@@ -6,6 +6,7 @@ use serde::Deserialize;
 pub enum OutputFormatConfig {
     Terminal,
     Json,
+    Markdown,
 }
 
 /// License policy configuration
@@ -49,4 +50,44 @@ pub struct LockpickConfig {
     /// OSV cache TTL in seconds (default: 86400 = 24h)
     #[serde(default)]
     pub cache_ttl: Option<u64>,
+
+    /// CI threshold configuration
+    #[serde(default)]
+    pub thresholds: Option<Thresholds>,
+}
+
+fn default_neg_one() -> i32 {
+    -1
+}
+
+/// CI threshold configuration for exit code strategy
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct Thresholds {
+    /// Max critical vulns allowed (-1 = unlimited)
+    #[serde(default = "default_neg_one")]
+    pub max_critical: i32,
+    /// Max high vulns allowed (-1 = unlimited)
+    #[serde(default = "default_neg_one")]
+    pub max_high: i32,
+    /// Max unused deps allowed (-1 = unlimited)
+    #[serde(default = "default_neg_one")]
+    pub max_unused: i32,
+    /// Max duplicate deps allowed (-1 = unlimited)
+    #[serde(default = "default_neg_one")]
+    pub max_duplicates: i32,
+    /// Fail on license violations
+    #[serde(default)]
+    pub fail_on_license: bool,
+}
+
+impl Default for Thresholds {
+    fn default() -> Self {
+        Self {
+            max_critical: -1,
+            max_high: -1,
+            max_unused: -1,
+            max_duplicates: -1,
+            fail_on_license: false,
+        }
+    }
 }
