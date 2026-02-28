@@ -1,0 +1,21 @@
+{
+  // bun lockfile - minimal fixture for testing
+  "lockfileVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "test-app",
+      "dependencies": {
+        "react": "^18.2.0",
+        "lodash": "^4.17.21"
+      },
+      "devDependencies": {
+        "typescript": "^5.3.0"
+      }
+    }
+  },
+  "packages": {
+    "react": ["react@18.2.0", "", "sha512-fake-react-integrity"],
+    "lodash": ["lodash@4.17.21", "", "sha512-fake-lodash-integrity"],
+    "typescript": ["typescript@5.3.3", "", "sha512-fake-ts-integrity"]
+  }
+}

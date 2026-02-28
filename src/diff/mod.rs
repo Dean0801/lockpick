@@ -30,6 +30,8 @@ pub struct DiffReport {
     pub vulns: DiffSection<String>,
     pub duplicates: DiffSection<String>,
     pub license_violations: DiffSection<String>,
+    pub outdated: DiffSection<String>,
+    pub supply_chain: DiffSection<String>,
     pub summary: DiffSummary,
 }
 
@@ -46,15 +48,21 @@ pub fn compute_diff(
     let vulns = diff_vulns(&baseline, current);
     let duplicates = diff_duplicates(&baseline, current);
     let license_violations = diff_licenses(&baseline, current);
+    let outdated = diff_outdated(&baseline, current);
+    let supply_chain = diff_supply_chain(&baseline, current);
 
     let new_issues = unused.added.len()
         + vulns.added.len()
         + duplicates.added.len()
-        + license_violations.added.len();
+        + license_violations.added.len()
+        + outdated.added.len()
+        + supply_chain.added.len();
     let resolved_issues = unused.removed.len()
         + vulns.removed.len()
         + duplicates.removed.len()
-        + license_violations.removed.len();
+        + license_violations.removed.len()
+        + outdated.removed.len()
+        + supply_chain.removed.len();
 
     Ok(DiffReport {
         summary: DiffSummary {
@@ -67,6 +75,8 @@ pub fn compute_diff(
         vulns,
         duplicates,
         license_violations,
+        outdated,
+        supply_chain,
     })
 }
 
@@ -95,6 +105,14 @@ pub fn render_terminal(report: &DiffReport, i18n: &I18n) -> String {
     for s in &report.vulns.removed {
         out.push_str(&format!("  - {s}\n"));
     }
+    render_diff_string_section(&mut out, &report.duplicates, i18n.t("duplicates"));
+    render_diff_string_section(
+        &mut out,
+        &report.license_violations,
+        i18n.t("license_violations"),
+    );
+    render_diff_string_section(&mut out, &report.outdated, i18n.t("outdated_deps"));
+    render_diff_string_section(&mut out, &report.supply_chain, i18n.t("supply_chain_risks"));
     out
 }
 
@@ -114,6 +132,21 @@ fn render_diff_section_terminal(
         out.push_str(&format!("\n- {label} ({}):\n", removed.len()));
         for dep in removed {
             out.push_str(&format!("  - {} {}\n", dep.name, dep.version));
+        }
+    }
+}
+
+fn render_diff_string_section(out: &mut String, section: &DiffSection<String>, label: &str) {
+    if !section.added.is_empty() {
+        out.push_str(&format!("\n+ {label} ({}):\n", section.added.len()));
+        for s in &section.added {
+            out.push_str(&format!("  + {s}\n"));
+        }
+    }
+    if !section.removed.is_empty() {
+        out.push_str(&format!("\n- {label} ({}):\n", section.removed.len()));
+        for s in &section.removed {
+            out.push_str(&format!("  - {s}\n"));
         }
     }
 }
@@ -143,6 +176,18 @@ pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
         for dep in &report.unused.added {
             md.push_str(&format!("- {} {}\n", dep.name, dep.version));
         }
+        for s in &report.vulns.added {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.duplicates.added {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.outdated.added {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.supply_chain.added {
+            md.push_str(&format!("- {s}\n"));
+        }
     }
     if report.summary.resolved_issues > 0 {
         md.push_str(&format!(
@@ -152,6 +197,18 @@ pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
         ));
         for dep in &report.unused.removed {
             md.push_str(&format!("- {} {}\n", dep.name, dep.version));
+        }
+        for s in &report.vulns.removed {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.duplicates.removed {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.outdated.removed {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.supply_chain.removed {
+            md.push_str(&format!("- {s}\n"));
         }
     }
     md
@@ -251,6 +308,46 @@ fn diff_licenses(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSec
     }
 }
 
+fn diff_outdated(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSection<String> {
+    let to_keys = |r: &AnalysisResult| -> HashSet<String> {
+        r.outdated
+            .as_ref()
+            .map(|o| {
+                o.entries
+                    .iter()
+                    .map(|e| format!("{}@{}", e.name, e.current))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let base = to_keys(baseline);
+    let curr = to_keys(current);
+    DiffSection {
+        added: curr.difference(&base).cloned().collect(),
+        removed: base.difference(&curr).cloned().collect(),
+    }
+}
+
+fn diff_supply_chain(baseline: &AnalysisResult, current: &AnalysisResult) -> DiffSection<String> {
+    let to_keys = |r: &AnalysisResult| -> HashSet<String> {
+        r.supply_chain
+            .as_ref()
+            .map(|sc| {
+                sc.risks
+                    .iter()
+                    .map(|r| format!("{}@{}", r.package, r.version))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let base = to_keys(baseline);
+    let curr = to_keys(current);
+    DiffSection {
+        added: curr.difference(&base).cloned().collect(),
+        removed: base.difference(&curr).cloned().collect(),
+    }
+}
+
 fn count_issues(r: &AnalysisResult) -> usize {
     let unused = r.unused.as_ref().map(|u| u.unused.len()).unwrap_or(0);
     let vulns: usize = r
@@ -264,7 +361,13 @@ fn count_issues(r: &AnalysisResult) -> usize {
         .map(|d| d.duplicates.len())
         .unwrap_or(0);
     let lics = r.license.as_ref().map(|l| l.violations.len()).unwrap_or(0);
-    unused + vulns + dups + lics
+    let outdated = r.outdated.as_ref().map(|o| o.total_outdated).unwrap_or(0);
+    let supply_chain = r
+        .supply_chain
+        .as_ref()
+        .map(|sc| sc.risks.len())
+        .unwrap_or(0);
+    unused + vulns + dups + lics + outdated + supply_chain
 }
 
 fn format_delta(new: usize, resolved: usize) -> String {

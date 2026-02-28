@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
@@ -141,7 +142,14 @@ pub async fn scan_vulnerabilities(
     // Send queries in batches to avoid API limits.
     // Failed batches are skipped with a warning so that successful results are preserved.
     let mut all_results: Vec<OsvResultEntry> = Vec::new();
-    for (batch_idx, chunk) in queries.chunks(OSV_BATCH_SIZE).enumerate() {
+    let batches: Vec<_> = queries.chunks(OSV_BATCH_SIZE).collect();
+    let pb = ProgressBar::new(batches.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{bar:30}] {pos}/{len} batches ({eta})")
+            .unwrap_or_else(|_| ProgressStyle::default_bar()),
+    );
+    for (batch_idx, chunk) in batches.iter().enumerate() {
         let request = OsvBatchRequest {
             queries: chunk.to_vec(),
         };
@@ -159,7 +167,9 @@ pub async fn scan_vulnerabilities(
                 all_results.extend((0..chunk.len()).map(|_| OsvResultEntry { vulns: Vec::new() }));
             }
         }
+        pb.inc(1);
     }
+    pb.finish_and_clear();
 
     // Map fresh results back to packages and write to cache
     let mut fresh_reports: Vec<VulnReport> = Vec::new();
@@ -289,12 +299,217 @@ fn extract_cvss_score(score: &str) -> Option<f64> {
     if let Ok(v) = score.parse::<f64>() {
         return Some(v);
     }
-    // CVSS vector format: "CVSS:3.1/AV:N/AC:L/..." — no embedded score,
-    // but some APIs put the score in a separate `score` field.
-    // Try extracting trailing float after last '/' if present
+    // CVSS 3.x vector format: compute base score from metrics
     if score.starts_with("CVSS:") {
-        // Vector string itself doesn't contain a numeric score
-        return None;
+        return compute_cvss3_base_score(score);
     }
     None
+}
+
+/// Compute CVSS 3.x Base Score from a vector string.
+/// Implements the standard formula from https://www.first.org/cvss/v3.1/specification-document
+fn compute_cvss3_base_score(vector: &str) -> Option<f64> {
+    use std::collections::HashMap;
+
+    // Parse metrics from vector like "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+    let mut metrics: HashMap<&str, &str> = HashMap::new();
+    for part in vector.split('/') {
+        if let Some((key, val)) = part.split_once(':') {
+            metrics.insert(key, val);
+        }
+    }
+
+    // All 8 base metrics are required
+    let av = metrics.get("AV")?;
+    let ac = metrics.get("AC")?;
+    let pr = metrics.get("PR")?;
+    let ui = metrics.get("UI")?;
+    let s = metrics.get("S")?;
+    let c = metrics.get("C")?;
+    let i = metrics.get("I")?;
+    let a = metrics.get("A")?;
+
+    let scope_changed = *s == "C";
+
+    // Attack Vector
+    let av_score = match *av {
+        "N" => 0.85,
+        "A" => 0.62,
+        "L" => 0.55,
+        "P" => 0.20,
+        _ => return None,
+    };
+
+    // Attack Complexity
+    let ac_score = match *ac {
+        "L" => 0.77,
+        "H" => 0.44,
+        _ => return None,
+    };
+
+    // Privileges Required (depends on Scope)
+    let pr_score = match (*pr, scope_changed) {
+        ("N", _) => 0.85,
+        ("L", false) => 0.62,
+        ("L", true) => 0.68,
+        ("H", false) => 0.27,
+        ("H", true) => 0.50,
+        _ => return None,
+    };
+
+    // User Interaction
+    let ui_score = match *ui {
+        "N" => 0.85,
+        "R" => 0.62,
+        _ => return None,
+    };
+
+    // Impact metrics (C/I/A)
+    let c_score = match *c {
+        "H" => 0.56,
+        "L" => 0.22,
+        "N" => 0.0,
+        _ => return None,
+    };
+    let i_score = match *i {
+        "H" => 0.56,
+        "L" => 0.22,
+        "N" => 0.0,
+        _ => return None,
+    };
+    let a_score = match *a {
+        "H" => 0.56,
+        "L" => 0.22,
+        "N" => 0.0,
+        _ => return None,
+    };
+
+    // Exploitability sub-score
+    let exploitability = 8.22 * av_score * ac_score * pr_score * ui_score;
+
+    // Impact sub-score
+    let iss = 1.0 - (1.0 - c_score) * (1.0 - i_score) * (1.0 - a_score);
+
+    let impact: f64 = if scope_changed {
+        7.52 * (iss - 0.029) - 3.25 * (iss - 0.02_f64).powf(15.0)
+    } else {
+        6.42 * iss
+    };
+
+    if impact <= 0.0 {
+        return Some(0.0);
+    }
+
+    let score: f64 = if scope_changed {
+        1.08 * (impact + exploitability)
+    } else {
+        impact + exploitability
+    };
+
+    // Cap at 10.0 and apply roundup
+    let capped = score.min(10.0);
+    Some(roundup(capped))
+}
+
+/// CVSS roundup: smallest number >= input with one decimal place
+fn roundup(input: f64) -> f64 {
+    let int_input = (input * 100_000.0).round() as i64;
+    if int_input % 10000 == 0 {
+        (int_input as f64) / 100_000.0
+    } else {
+        ((int_input / 10000 + 1) as f64) / 10.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_cvss_plain_number() {
+        assert_eq!(extract_cvss_score("7.5"), Some(7.5));
+        assert_eq!(extract_cvss_score("9.8"), Some(9.8));
+        assert_eq!(extract_cvss_score("0.0"), Some(0.0));
+    }
+
+    #[test]
+    fn test_cvss3_critical_vector() {
+        // AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H → 9.8
+        let score =
+            compute_cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H").unwrap();
+        assert!((score - 9.8).abs() < 0.1, "expected ~9.8, got {score}");
+    }
+
+    #[test]
+    fn test_cvss3_medium_vector() {
+        // AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N → 5.4
+        let score =
+            compute_cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N").unwrap();
+        assert!((score - 5.4).abs() < 0.1, "expected ~5.4, got {score}");
+    }
+
+    #[test]
+    fn test_cvss3_scope_changed() {
+        // AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H → 10.0
+        let score =
+            compute_cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H").unwrap();
+        assert!((score - 10.0).abs() < 0.1, "expected ~10.0, got {score}");
+    }
+
+    #[test]
+    fn test_cvss3_low_vector() {
+        // AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N → 1.8
+        let score =
+            compute_cvss3_base_score("CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N").unwrap();
+        assert!((score - 1.8).abs() < 0.2, "expected ~1.8, got {score}");
+    }
+
+    #[test]
+    fn test_cvss3_zero_impact() {
+        // All impact metrics None → 0.0
+        let score =
+            compute_cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N").unwrap();
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_cvss3_incomplete_vector() {
+        // Missing required metrics → None
+        assert!(compute_cvss3_base_score("CVSS:3.1/AV:N/AC:L").is_none());
+    }
+
+    #[test]
+    fn test_cvss3_invalid_metric_value() {
+        assert!(compute_cvss3_base_score("CVSS:3.1/AV:X/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H").is_none());
+    }
+
+    #[test]
+    fn test_extract_cvss_score_with_vector() {
+        // Integration: extract_cvss_score should now handle vectors
+        let score = extract_cvss_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H");
+        assert!(score.is_some());
+        assert!((score.unwrap() - 9.8).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_parse_severity_with_cvss_vector() {
+        let vuln = OsvVuln {
+            id: "TEST-001".into(),
+            summary: "test".into(),
+            severity: vec![OsvSeverity {
+                severity_type: "CVSS_V3".into(),
+                score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H".into(),
+            }],
+            affected: vec![],
+        };
+        assert_eq!(parse_severity(&vuln), Severity::Critical);
+    }
+
+    #[test]
+    fn test_roundup() {
+        assert_eq!(roundup(0.0), 0.0);
+        assert_eq!(roundup(4.0), 4.0);
+        assert_eq!(roundup(4.02), 4.1);
+        assert_eq!(roundup(4.1), 4.1);
+    }
 }

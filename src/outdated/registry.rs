@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::Semaphore;
 
 use crate::cache;
@@ -89,11 +90,19 @@ pub async fn fetch_latest_versions(
     }
 
     let mut result: HashMap<String, String> = cached_results.into_iter().collect();
+    let pb = ProgressBar::new(handles.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{bar:30}] {pos}/{len} packages ({eta})")
+            .unwrap_or_else(|_| ProgressStyle::default_bar()),
+    );
     for handle in handles {
         if let Ok(Some((name, version))) = handle.await {
             result.insert(name, version);
         }
+        pb.inc(1);
     }
+    pb.finish_and_clear();
     Ok(result)
 }
 

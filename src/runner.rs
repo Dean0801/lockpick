@@ -120,7 +120,46 @@ pub async fn run_monorepo(
     };
 
     if cfg.run_fix {
-        eprintln!("Warning: fix mode is not yet supported for monorepo workspaces");
+        // Fix mode for monorepo: run fix on each workspace package
+        let mut has_issues = false;
+        for pkg_dir in &workspace_packages {
+            let pkg_name = pkg_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            eprintln!("\n--- {} {} ---", i18n.t("workspace_package"), pkg_name);
+
+            let (pkg_deps, pkg_dev_deps) = match read_package_deps(pkg_dir) {
+                Some(d) => d,
+                None => {
+                    eprintln!("  {}", i18n.t("skip_no_deps"));
+                    continue;
+                }
+            };
+
+            let pkg_graph = DependencyGraph {
+                dependencies: pkg_deps,
+                dev_dependencies: pkg_dev_deps,
+                lockfile_type: graph.lockfile_type.clone(),
+                all_packages: graph.all_packages.clone(),
+                dep_edges: HashMap::new(),
+            };
+
+            let opts = build_opts(pkg_dir, &pkg_graph, cfg, i18n);
+            match analyze_package(&opts) {
+                Ok(result) => {
+                    if run_fix_mode(pkg_dir, &result, &pkg_graph, cfg, i18n) {
+                        has_issues = true;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  Error analyzing {pkg_name}: {e}");
+                    has_issues = true;
+                }
+            }
+        }
+        return has_issues;
     }
 
     if cfg.verbose {
@@ -189,22 +228,38 @@ pub async fn run_monorepo(
 
     let has_vulns = vulns.as_ref().is_some_and(|v| !v.is_empty());
 
-    if let Some(ref v) = vulns {
-        let vuln_result = AnalysisResult {
+    // Supply chain analysis at root level
+    let supply_chain = if cfg.run_supply_chain {
+        Some(crate::supply_chain::analyze(graph))
+    } else {
+        None
+    };
+
+    let has_supply_chain_risks = supply_chain.as_ref().is_some_and(|sc| {
+        sc.risks.iter().any(|r| {
+            matches!(
+                r.severity,
+                crate::Severity::High | crate::Severity::Critical
+            )
+        })
+    });
+
+    if vulns.is_some() || supply_chain.is_some() {
+        let combined_result = AnalysisResult {
             unused: None,
-            vulns: Some(v.clone()),
+            vulns: vulns.clone(),
             duplicates: None,
             size: None,
             license: None,
             outdated: None,
-            supply_chain: None,
+            supply_chain,
         };
-        if let Err(e) = reporter.report(&vuln_result, i18n) {
+        if let Err(e) = reporter.report(&combined_result, i18n) {
             eprintln!("Report error: {e}");
         }
     }
 
-    all_has_unused || has_vulns
+    all_has_unused || has_vulns || has_supply_chain_risks
 }
 
 /// Run single-package analysis. Returns (has_issues, analysis_result).
@@ -250,7 +305,18 @@ pub async fn run_single(
 
     let has_unused = result.unused.as_ref().is_some_and(|u| !u.unused.is_empty());
     let has_vulns = result.vulns.as_ref().is_some_and(|v| !v.is_empty());
-    (has_unused || has_vulns, Some(result))
+    let has_supply_chain_risks = result.supply_chain.as_ref().is_some_and(|sc| {
+        sc.risks.iter().any(|r| {
+            matches!(
+                r.severity,
+                crate::Severity::High | crate::Severity::Critical
+            )
+        })
+    });
+    (
+        has_unused || has_vulns || has_supply_chain_risks,
+        Some(result),
+    )
 }
 
 /// Handle fix mode: dry-run or actual removal. Returns true if there are issues.

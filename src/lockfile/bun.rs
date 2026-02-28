@@ -287,4 +287,18 @@ mod tests {
         assert_eq!(graph.dependencies.len(), 1);
         assert!(graph.dependencies.contains_key("react"));
     }
+
+    #[test]
+    fn test_parse_bun_lock_fixture() {
+        let content = include_str!("../../tests/fixtures/bun.lock");
+        let graph = parse(content).unwrap();
+        assert_eq!(graph.lockfile_type, LockfileType::Bun);
+        assert_eq!(graph.dependencies.len(), 2);
+        assert_eq!(graph.dev_dependencies.len(), 1);
+        assert_eq!(graph.dependencies["react"].version, "18.2.0");
+        assert_eq!(graph.dependencies["lodash"].version, "4.17.21");
+        assert_eq!(graph.dev_dependencies["typescript"].version, "5.3.3");
+        // Verify integrity from fixture
+        assert!(graph.dependencies["react"].integrity.is_some());
+    }
 }

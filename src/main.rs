@@ -409,7 +409,12 @@ async fn main() -> ExitCode {
         let content = match effective_format {
             OutputFormat::Json => serde_json::to_string_pretty(result).unwrap_or_default(),
             OutputFormat::Markdown => MarkdownReporter.render(result, &i18n),
-            OutputFormat::Terminal => MarkdownReporter.render(result, &i18n),
+            OutputFormat::Terminal => {
+                eprintln!(
+                    "Note: Terminal format is not suitable for file output, using Markdown instead."
+                );
+                MarkdownReporter.render(result, &i18n)
+            }
         };
         if let Err(e) = std::fs::write(output_path, content) {
             eprintln!("Error writing to {}: {e}", output_path.display());
