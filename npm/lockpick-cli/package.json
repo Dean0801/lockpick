@@ -10,7 +10,7 @@
   "bin": {
     "lockpick": "bin/lockpick.js"
   },
-  "files": ["bin"],
+  "files": ["bin", "README.md"],
   "optionalDependencies": {
     "lockpick-cli-darwin-arm64": "0.6.1",
     "lockpick-cli-darwin-x64": "0.6.1",

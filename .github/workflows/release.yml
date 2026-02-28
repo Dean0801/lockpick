@@ -101,6 +101,9 @@ jobs:
           done
           sed -i "s/\"lockpick-cli-\([^\"]*\)\": \"[^\"]*\"/\"lockpick-cli-\1\": \"$VERSION\"/g" npm/lockpick-cli/package.json
 
+      - name: Sync README
+        run: cp README.md npm/lockpick-cli/README.md
+
       - name: Publish platform packages
         run: |
           for pkg in ./npm/lockpick-cli-*/; do
