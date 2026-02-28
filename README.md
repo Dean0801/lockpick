@@ -16,6 +16,8 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 - **Size analysis** — Measures the disk size of each dependency in `node_modules`
 - **License compliance** — Extracts license info from `node_modules`, normalizes SPDX aliases, supports allow/deny policy via `.lockpickrc`
 - **Auto-fix** — `lockpick fix` removes unused dependencies via your package manager (supports `--dry-run`)
+- **Outdated detection** — `lockpick outdated` checks npm registry for newer versions, correlates with vulnerability data for upgrade priority
+- **Supply chain security** — `lockpick supply-chain` detects typosquatting, scope confusion, and version anomaly attacks
 - **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, bun.lock, package-lock.json, and yarn.lock
 - **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions)
 - **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found; supports `--fail-on` threshold and `.lockpickrc` thresholds for fine-grained CI gating
@@ -91,6 +93,15 @@ lockpick --format json --output baseline.json   # Save baseline
 lockpick diff baseline.json                      # Compare later
 lockpick diff baseline.json --format markdown    # Markdown diff
 
+# Outdated dependency check
+lockpick outdated
+lockpick outdated --level patch        # Filter by semver level
+lockpick outdated --no-audit           # Skip vulnerability correlation
+lockpick outdated --registry https://registry.npmmirror.com  # Custom registry
+
+# Supply chain security analysis
+lockpick supply-chain
+
 # CI threshold gate
 lockpick --fail-on critical         # Fail on critical vulns only
 lockpick --fail-on any              # Fail on any issue
@@ -120,12 +131,14 @@ Create a `.lockpickrc.json` or `.lockpickrc.yaml` in your project root:
     "deny": ["GPL-3.0"]
   },
   "cache_ttl": 7200,
+  "registry": "https://registry.npmjs.org",
   "thresholds": {
     "max_critical": 0,
     "max_high": 5,
     "max_unused": 10,
     "max_duplicates": -1,
-    "fail_on_license": true
+    "fail_on_license": true,
+    "max_supply_chain_high": 0
   }
 }
 ```
@@ -145,7 +158,9 @@ CLI arguments override config file settings.
 9. Measure dependency sizes in `node_modules`
 10. Extract license info and check against allow/deny policy
 11. Query [OSV.dev](https://osv.dev) batch API for known vulnerabilities (with local file cache)
-12. Output results as colored terminal tables, JSON, or Markdown
+12. Check npm registry for outdated dependencies and compute upgrade priority
+13. Run supply chain security checks (typosquatting, scope confusion, version anomaly)
+14. Output results as colored terminal tables, JSON, or Markdown
 
 ## Environment Variables
 
