@@ -16,6 +16,11 @@ fn get_types_base(name: &str) -> Option<String> {
     }
 }
 
+/// Check if a dependency version uses the workspace protocol (monorepo internal package)
+fn is_workspace_dep(version: &str) -> bool {
+    version.starts_with("workspace:")
+}
+
 /// Detect unused dependencies by comparing declared deps vs actual imports
 pub fn detect_unused(
     graph: &DependencyGraph,
@@ -25,6 +30,10 @@ pub fn detect_unused(
     let mut unused = Vec::new();
 
     for (name, info) in &graph.dependencies {
+        // Skip workspace internal packages — they should never be removed
+        if is_workspace_dep(&info.version) {
+            continue;
+        }
         if !used.contains(name.as_str()) {
             unused.push(UnusedDep {
                 name: name.clone(),
@@ -36,6 +45,10 @@ pub fn detect_unused(
 
     if !skip_dev {
         for (name, info) in &graph.dev_dependencies {
+            // Skip workspace internal packages
+            if is_workspace_dep(&info.version) {
+                continue;
+            }
             if !used.contains(name.as_str()) {
                 // Smart @types/* association: if the base package is used, skip
                 if let Some(base) = get_types_base(name)
@@ -155,5 +168,34 @@ mod tests {
         // lodash (prod) and typescript (dev) should still be unused
         assert!(unused_names.contains(&"lodash"));
         assert!(unused_names.contains(&"typescript"));
+    }
+
+    #[test]
+    fn test_workspace_deps_excluded() {
+        let mut graph = make_graph();
+        graph.dependencies.insert(
+            "@vben/hooks".into(),
+            PackageInfo {
+                name: "@vben/hooks".into(),
+                version: "workspace:*".into(),
+                integrity: None,
+            },
+        );
+        graph.dev_dependencies.insert(
+            "@vben/utils".into(),
+            PackageInfo {
+                name: "@vben/utils".into(),
+                version: "workspace:^".into(),
+                integrity: None,
+            },
+        );
+
+        let used: HashSet<String> = ["react"].iter().map(|s| s.to_string()).collect();
+        let report = detect_unused(&graph, &used, false);
+        let unused_names: Vec<&str> = report.unused.iter().map(|d| d.name.as_str()).collect();
+
+        assert!(!unused_names.contains(&"@vben/hooks"), "workspace dep should be excluded");
+        assert!(!unused_names.contains(&"@vben/utils"), "workspace dev dep should be excluded");
+        assert!(unused_names.contains(&"lodash"));
     }
 }

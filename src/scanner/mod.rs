@@ -9,7 +9,7 @@ use walkdir::WalkDir;
 use crate::error::LockpickError;
 
 /// JS/TS file extensions to scan
-const SOURCE_EXTENSIONS: &[&str] = &["js", "ts", "jsx", "tsx", "mjs", "cjs", "mts", "cts"];
+const SOURCE_EXTENSIONS: &[&str] = &["js", "ts", "jsx", "tsx", "mjs", "cjs", "mts", "cts", "vue"];
 
 /// Directories to exclude from scanning
 const EXCLUDE_DIRS: &[&str] = &["node_modules", "dist", "build", ".git", ".next", "coverage"];

@@ -97,6 +97,14 @@ fn run_unused_detection(opts: &AnalyzeOptions<'_>) -> Result<UnusedReport, Lockp
     let script_deps = crate::scanner::scripts::extract_script_deps(opts.project_path);
     used.extend(script_deps);
 
+    // 5.5 Protect peerDependencies — they should never be marked as unused
+    if let Ok(pkg_content) = std::fs::read_to_string(opts.project_path.join("package.json"))
+        && let Ok(pkg_json) = serde_json::from_str::<serde_json::Value>(&pkg_content)
+        && let Some(peers) = pkg_json.get("peerDependencies").and_then(|p| p.as_object())
+    {
+        used.extend(peers.keys().cloned());
+    }
+
     if opts.verbose {
         eprintln!("{}", opts.i18n.t("scan_config_complete"));
     }

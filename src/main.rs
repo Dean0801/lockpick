@@ -45,6 +45,10 @@ struct Cli {
     #[arg(long, global = true)]
     dry_run: bool,
 
+    /// Skip confirmation prompt (for fix command)
+    #[arg(short, long, global = true)]
+    yes: bool,
+
     /// Disable OSV cache
     #[arg(long, global = true)]
     no_cache: bool,
@@ -72,6 +76,8 @@ enum Commands {
     Audit,
     /// Auto-remove unused dependencies
     Fix,
+    /// Undo last fix (restore from backup)
+    FixUndo,
     /// Visualize dependency tree
     Tree {
         /// Output format: terminal | dot | json | mermaid
@@ -352,6 +358,21 @@ async fn main() -> ExitCode {
         };
     }
 
+    // Handle fix-undo subcommand
+    if let Some(Commands::FixUndo) = &cli.command {
+        match lockpick::fix::restore_backup(&project_path) {
+            Ok(dir) => {
+                eprintln!("Restored from backup: {}", dir.display());
+                eprintln!("Please run your package manager install to re-sync dependencies.");
+                return ExitCode::SUCCESS;
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
     // Standard analysis pipeline
     let (run_unused, run_audit, run_fix, run_supply_chain) = match &cli.command {
         Some(Commands::Unused) => (true, false, false, false),
@@ -382,6 +403,7 @@ async fn main() -> ExitCode {
         run_supply_chain,
         verbose: cli.verbose,
         dry_run: cli.dry_run,
+        yes: cli.yes,
         no_cache: cli.no_cache,
         cache_ttl: rc_config.cache_ttl,
     };

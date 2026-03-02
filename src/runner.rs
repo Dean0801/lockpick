@@ -19,6 +19,7 @@ pub struct RunConfig<'a> {
     pub run_supply_chain: bool,
     pub verbose: bool,
     pub dry_run: bool,
+    pub yes: bool,
     pub no_cache: bool,
     pub cache_ttl: Option<u64>,
 }
@@ -341,6 +342,21 @@ fn run_fix_mode(
             eprintln!("  - {} ({})", dep.name, dep.version);
         }
         return false;
+    }
+
+    // Interactive confirmation (skip with --yes)
+    if !cfg.yes && !crate::fix::confirm_fix(&unused_report.unused) {
+        eprintln!("Cancelled.");
+        return false;
+    }
+
+    // Backup before fix
+    match crate::fix::backup_before_fix(project_path) {
+        Ok(dir) => eprintln!("Backup saved to: {}", dir.display()),
+        Err(e) => {
+            eprintln!("Backup failed: {e}");
+            return true;
+        }
     }
 
     match crate::fix::fix_unused(
