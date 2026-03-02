@@ -23,7 +23,12 @@ fn get_pm_command(lockfile_type: &LockfileType) -> (&'static str, &'static str) 
 }
 
 /// Lockfile filenames in detection order
-const LOCKFILE_NAMES: &[&str] = &["pnpm-lock.yaml", "bun.lock", "package-lock.json", "yarn.lock"];
+const LOCKFILE_NAMES: &[&str] = &[
+    "pnpm-lock.yaml",
+    "bun.lock",
+    "package-lock.json",
+    "yarn.lock",
+];
 
 /// Backup package.json and lockfile before fix. Returns backup dir path.
 pub fn backup_before_fix(project_path: &Path) -> Result<PathBuf, LockpickError> {
@@ -66,9 +71,9 @@ pub fn restore_backup(project_path: &Path) -> Result<PathBuf, LockpickError> {
         .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .collect();
     entries.sort_by_key(|e| e.file_name());
-    let latest = entries.last().ok_or_else(|| {
-        LockpickError::Config("No backup found".into())
-    })?;
+    let latest = entries
+        .last()
+        .ok_or_else(|| LockpickError::Config("No backup found".into()))?;
     let backup_dir = latest.path();
 
     // Restore files

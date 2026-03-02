@@ -194,8 +194,14 @@ mod tests {
         let report = detect_unused(&graph, &used, false);
         let unused_names: Vec<&str> = report.unused.iter().map(|d| d.name.as_str()).collect();
 
-        assert!(!unused_names.contains(&"@vben/hooks"), "workspace dep should be excluded");
-        assert!(!unused_names.contains(&"@vben/utils"), "workspace dev dep should be excluded");
+        assert!(
+            !unused_names.contains(&"@vben/hooks"),
+            "workspace dep should be excluded"
+        );
+        assert!(
+            !unused_names.contains(&"@vben/utils"),
+            "workspace dev dep should be excluded"
+        );
         assert!(unused_names.contains(&"lodash"));
     }
 }
