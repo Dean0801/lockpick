@@ -99,12 +99,7 @@ pub fn render_terminal(report: &DiffReport, i18n: &I18n) -> String {
         &report.unused.removed,
         i18n.t("unused_deps"),
     );
-    for s in &report.vulns.added {
-        out.push_str(&format!("  + {s}\n"));
-    }
-    for s in &report.vulns.removed {
-        out.push_str(&format!("  - {s}\n"));
-    }
+    render_diff_string_section(&mut out, &report.vulns, i18n.t("vulns"));
     render_diff_string_section(&mut out, &report.duplicates, i18n.t("duplicates"));
     render_diff_string_section(
         &mut out,
@@ -182,6 +177,9 @@ pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
         for s in &report.duplicates.added {
             md.push_str(&format!("- {s}\n"));
         }
+        for s in &report.license_violations.added {
+            md.push_str(&format!("- {s}\n"));
+        }
         for s in &report.outdated.added {
             md.push_str(&format!("- {s}\n"));
         }
@@ -202,6 +200,9 @@ pub fn render_markdown(report: &DiffReport, i18n: &I18n) -> String {
             md.push_str(&format!("- {s}\n"));
         }
         for s in &report.duplicates.removed {
+            md.push_str(&format!("- {s}\n"));
+        }
+        for s in &report.license_violations.removed {
             md.push_str(&format!("- {s}\n"));
         }
         for s in &report.outdated.removed {

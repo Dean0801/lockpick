@@ -61,8 +61,8 @@ fn simple_hash(s: &str) -> u64 {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::UNIX_EPOCH
-        .elapsed()
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
 }

@@ -97,8 +97,12 @@ pub async fn fetch_latest_versions(
             .unwrap_or_else(|_| ProgressStyle::default_bar()),
     );
     for handle in handles {
-        if let Ok(Some((name, version))) = handle.await {
-            result.insert(name, version);
+        match handle.await {
+            Ok(Some((name, version))) => {
+                result.insert(name, version);
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("warning: registry query task panicked: {e}"),
         }
         pb.inc(1);
     }

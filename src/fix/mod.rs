@@ -5,6 +5,7 @@ use std::process::Command;
 use std::time::SystemTime;
 
 use crate::error::LockpickError;
+use crate::i18n::I18n;
 use crate::{LockfileType, UnusedDep};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,16 +88,16 @@ pub fn restore_backup(project_path: &Path) -> Result<PathBuf, LockpickError> {
 }
 
 /// Prompt user for confirmation. Returns true if user confirms.
-pub fn confirm_fix(unused: &[UnusedDep]) -> bool {
-    eprintln!("\n  即将删除以下 {} 个未使用依赖：\n", unused.len());
+pub fn confirm_fix(unused: &[UnusedDep], i18n: &I18n) -> bool {
+    eprintln!("\n  {} ({}):\n", i18n.t("fix_will_remove"), unused.len());
     for dep in unused {
         let tag = match dep.dep_type {
-            crate::DepType::Prod => "prod",
-            crate::DepType::Dev => "dev",
+            crate::DepType::Prod => i18n.t("prod"),
+            crate::DepType::Dev => i18n.t("dev"),
         };
         eprintln!("    [{tag}] {}@{}", dep.name, dep.version);
     }
-    eprint!("\n  确认删除？(y/N) ");
+    eprint!("\n  {} ", i18n.t("fix_confirm_prompt"));
     io::stderr().flush().ok();
 
     let mut input = String::new();

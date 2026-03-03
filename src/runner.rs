@@ -345,7 +345,7 @@ fn run_fix_mode(
     }
 
     // Interactive confirmation (skip with --yes)
-    if !cfg.yes && !crate::fix::confirm_fix(&unused_report.unused) {
+    if !cfg.yes && !crate::fix::confirm_fix(&unused_report.unused, i18n) {
         eprintln!("Cancelled.");
         return false;
     }

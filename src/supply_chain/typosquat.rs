@@ -39,6 +39,10 @@ pub fn check_typosquat(name: &str) -> Option<(String, usize)> {
         if name == popular {
             return None;
         } // exact match = not typosquat
+        let len_diff = name.len().abs_diff(popular.len());
+        if len_diff > threshold {
+            continue;
+        }
         let dist = edit_distance(name, popular);
         if dist > 0 && dist <= threshold && best.as_ref().is_none_or(|(_, d)| dist < *d) {
             best = Some((popular.to_string(), dist));

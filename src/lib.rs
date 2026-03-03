@@ -174,6 +174,16 @@ pub enum SemverLevel {
     Major,
 }
 
+impl std::fmt::Display for SemverLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SemverLevel::Patch => write!(f, "patch"),
+            SemverLevel::Minor => write!(f, "minor"),
+            SemverLevel::Major => write!(f, "major"),
+        }
+    }
+}
+
 /// Upgrade priority (combines outdated + vuln info)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UpgradePriority {

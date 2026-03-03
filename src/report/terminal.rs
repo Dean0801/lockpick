@@ -1,7 +1,7 @@
 use comfy_table::{ContentArrangement, Table};
 use owo_colors::OwoColorize;
 
-use super::Reporter;
+use super::{Reporter, format_bytes};
 use crate::error::LockpickError;
 use crate::i18n::I18n;
 use crate::{AnalysisResult, DepType, Severity, SupplyChainRiskType, ViolationReason};
@@ -227,16 +227,6 @@ fn print_license(result: &AnalysisResult, i18n: &I18n) {
     println!("{vtable}");
 }
 
-fn format_bytes(bytes: u64) -> String {
-    if bytes >= 1_048_576 {
-        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
-    } else if bytes >= 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
 fn print_outdated(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref report) = result.outdated else {
         return;
@@ -264,7 +254,7 @@ fn print_outdated(result: &AnalysisResult, i18n: &I18n) {
     ]);
 
     for e in &report.entries {
-        let level = format!("{:?}", e.level);
+        let level = format!("{}", e.level);
         let priority = match e.priority {
             crate::UpgradePriority::Critical => format!("🔴 {}", i18n.t("critical").red()),
             crate::UpgradePriority::High => format!("🟡 {}", i18n.t("high").yellow()),
