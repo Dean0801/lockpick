@@ -22,7 +22,7 @@ impl Reporter for TerminalReporter {
     }
 }
 
-fn print_unused(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_unused(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref unused) = result.unused else {
         return;
     };
@@ -56,7 +56,7 @@ fn print_unused(result: &AnalysisResult, i18n: &I18n) {
     println!("{table}");
 }
 
-fn print_vulns(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_vulns(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref vulns) = result.vulns else {
         return;
     };
@@ -100,7 +100,7 @@ fn print_vulns(result: &AnalysisResult, i18n: &I18n) {
     println!("{table}");
 }
 
-fn print_duplicates(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_duplicates(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref dups) = result.duplicates else {
         return;
     };
@@ -129,7 +129,7 @@ fn print_duplicates(result: &AnalysisResult, i18n: &I18n) {
     println!("{table}");
 }
 
-fn print_size(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_size(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref size) = result.size else {
         return;
     };
@@ -157,7 +157,7 @@ fn print_size(result: &AnalysisResult, i18n: &I18n) {
     println!("{table}");
 }
 
-fn print_license(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_license(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref license) = result.license else {
         return;
     };
@@ -227,7 +227,7 @@ fn print_license(result: &AnalysisResult, i18n: &I18n) {
     println!("{vtable}");
 }
 
-fn print_outdated(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_outdated(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref report) = result.outdated else {
         return;
     };
@@ -273,7 +273,7 @@ fn print_outdated(result: &AnalysisResult, i18n: &I18n) {
     );
 }
 
-fn print_supply_chain(result: &AnalysisResult, i18n: &I18n) {
+pub fn print_supply_chain(result: &AnalysisResult, i18n: &I18n) {
     let Some(ref report) = result.supply_chain else {
         return;
     };

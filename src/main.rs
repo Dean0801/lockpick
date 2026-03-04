@@ -7,7 +7,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use lockpick::config::load_config;
 use lockpick::i18n::I18n;
 use lockpick::report::markdown::MarkdownReporter;
-use lockpick::report::{Reporter, json::JsonReporter, terminal::TerminalReporter};
+use lockpick::report::{
+    Reporter, interactive::InteractiveReporter, json::JsonReporter, terminal::TerminalReporter,
+};
 use lockpick::runner::RunConfig;
 
 #[derive(Parser)]
@@ -48,6 +50,10 @@ struct Cli {
     /// Skip confirmation prompt (for fix command)
     #[arg(short, long, global = true)]
     yes: bool,
+
+    /// Interactive mode: show summary first, then ask which details to display
+    #[arg(short = 'i', long, global = true)]
+    interactive: bool,
 
     /// Disable OSV cache
     #[arg(long, global = true)]
@@ -387,6 +393,7 @@ async fn main() -> ExitCode {
         _ => OutputFormat::Terminal,
     });
     let reporter: Box<dyn Reporter> = match effective_format {
+        OutputFormat::Terminal if cli.interactive => Box::new(InteractiveReporter),
         OutputFormat::Terminal => Box::new(TerminalReporter),
         OutputFormat::Json => Box::new(JsonReporter),
         OutputFormat::Markdown => Box::new(MarkdownReporter),

@@ -98,6 +98,9 @@ impl I18n {
                 "typosquat" => "仿冒包",
                 "scope_confusion" => "作用域混淆",
                 "version_anomaly" => "版本异常",
+                "interactive_prompt" => "选择要查看的部分（输入数字）：",
+                "interactive_select" => "输入选项（0 退出）：",
+                "interactive_exit" => "退出",
                 _ => key,
             },
             Lang::En => match key {
@@ -166,6 +169,9 @@ impl I18n {
                 "typosquat" => "Typosquat",
                 "scope_confusion" => "Scope confusion",
                 "version_anomaly" => "Version anomaly",
+                "interactive_prompt" => "Select sections to view (enter number):",
+                "interactive_select" => "Enter choice (0 to exit):",
+                "interactive_exit" => "Exit",
                 _ => key,
             },
         }
