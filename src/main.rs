@@ -70,6 +70,10 @@ struct Cli {
     /// Custom npm registry URL
     #[arg(long, global = true)]
     registry: Option<String>,
+
+    /// Use CLI mode instead of TUI (default is TUI)
+    #[arg(long, global = true)]
+    cli: bool,
 }
 
 #[derive(Subcommand)]
@@ -161,6 +165,18 @@ enum SemverLevelFilter {
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    // 如果没有子命令且没有 --cli 参数，启动 TUI
+    if cli.command.is_none() && !cli.cli {
+        return match lockpick::tui::run() {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("TUI error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let project_path = cli.path.clone().unwrap_or_else(|| PathBuf::from("."));
 
     if !project_path.exists() {

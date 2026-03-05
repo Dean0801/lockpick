@@ -15,6 +15,7 @@ pub mod scanner;
 pub mod supply_chain;
 pub mod threshold;
 pub mod tree;
+pub mod tui;
 pub mod utils;
 pub mod workspace;
 
