@@ -27,7 +27,7 @@ fn render_header(f: &mut Frame, area: Rect) {
     let header = Paragraph::new(vec![
         Line::from(""),
         Line::from(Span::styled(
-            "🔒 Lockpick v0.7.1",
+            "🔒 Lockpick v0.8.0",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
