@@ -51,67 +51,85 @@ cargo build --release
 
 ## Usage
 
+### TUI Mode (Default)
+
+Run `lockpick-cli` without arguments to launch the interactive TUI:
+
+```bash
+lockpick-cli
+```
+
+**Features:**
+- 🎨 Beautiful terminal UI with real-time progress
+- ⌨️ Keyboard navigation: `↑/↓` or `j/k` to select, `Enter` to confirm, `Esc` or `q` to quit
+- 📊 Color-coded results (🟢 Green = OK, 🟡 Yellow = Warning, 🔴 Red = Critical)
+- 🔍 8 analysis modes: Full Scan, Unused Deps, Security Audit, Auto Fix, Outdated Check, Supply Chain, Settings, Exit
+
+### CLI Mode
+
+Use `--cli` flag for traditional command-line interface:
+
 ```bash
 # Full scan (unused deps + vulnerability audit)
-lockpick-cli
+lockpick-cli --cli
 
 # Scan a specific project
-lockpick-cli --path /path/to/project
+lockpick-cli --cli --path /path/to/project
 
 # Unused dependencies only
-lockpick-cli unused
+lockpick-cli --cli unused
 
 # Vulnerability audit only
-lockpick-cli audit
+lockpick-cli --cli audit
 
 # Chinese output
-lockpick-cli --lang zh
+lockpick-cli --cli --lang zh
 
 # JSON output
-lockpick-cli --format json
+lockpick-cli --cli --format json
 
 # Skip devDependencies
-lockpick-cli --no-dev
+lockpick-cli --cli --no-dev
 
 # Ignore specific packages
-lockpick-cli --ignore react --ignore lodash
+lockpick-cli --cli --ignore react --ignore lodash
 
 # Auto-remove unused dependencies
-lockpick-cli fix
+lockpick-cli --cli fix
 
 # Dry run (preview what would be removed)
-lockpick-cli fix --dry-run
+lockpick-cli --cli fix --dry-run
 
 # Disable vulnerability cache
-lockpick-cli audit --no-cache
+lockpick-cli --cli audit --no-cache
 
 # Markdown report to file
-lockpick-cli --format markdown --output report.md
+lockpick-cli --cli --format markdown --output report.md
 
 # Dependency tree visualization
-lockpick-cli tree
-lockpick-cli tree --format dot          # Graphviz DOT
-lockpick-cli tree --format mermaid      # Mermaid diagram
-lockpick-cli tree --focus react         # Focus on a package
-lockpick-cli tree --depth 2             # Limit depth
+lockpick-cli --cli tree
+lockpick-cli --cli tree --format dot          # Graphviz DOT
+lockpick-cli --cli tree --format mermaid      # Mermaid diagram
+lockpick-cli --cli tree --focus react         # Focus on a package
+lockpick-cli --cli tree --depth 2             # Limit depth
 
 # Diff against baseline
-lockpick-cli --format json --output baseline.json   # Save baseline
-lockpick-cli diff baseline.json                      # Compare later
-lockpick-cli diff baseline.json --format markdown    # Markdown diff
+lockpick-cli --cli --format json --output baseline.json   # Save baseline
+lockpick-cli --cli diff baseline.json                      # Compare later
+lockpick-cli --cli diff baseline.json --format markdown    # Markdown diff
 
 # Outdated dependency check
-lockpick-cli outdated
-lockpick-cli outdated --level patch        # Filter by semver level
-lockpick-cli outdated --no-audit           # Skip vulnerability correlation
-lockpick-cli outdated --registry https://registry.npmmirror.com  # Custom registry
+lockpick-cli --cli outdated
+lockpick-cli --cli outdated --level patch        # Filter by semver level
+lockpick-cli --cli outdated --no-audit           # Skip vulnerability correlation
+lockpick-cli --cli outdated --registry https://registry.npmmirror.com  # Custom registry
 
 # Supply chain security analysis
-lockpick-cli supply-chain
+lockpick-cli --cli supply-chain
 
 # CI threshold gate
-lockpick-cli --fail-on critical         # Fail on critical vulns only
-lockpick-cli --fail-on any              # Fail on any issue
+lockpick-cli --cli --fail-on critical         # Fail on critical vulns only
+lockpick-cli --cli --fail-on any              # Fail on any issue
 ```
 
 ## Supported Lockfiles
