@@ -100,6 +100,9 @@ pub async fn check_outdated(
 
     let pkg_pairs: Vec<(String, String)> = packages
         .iter()
+        .filter(|(_, v, _)| {
+            !v.starts_with("workspace:") && !v.starts_with("link:") && !v.starts_with("file:")
+        })
         .map(|(n, v, _)| (n.clone(), v.clone()))
         .collect();
 
