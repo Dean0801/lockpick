@@ -1,5 +1,7 @@
 pub mod app;
 pub mod events;
+pub mod tree_converter;
+pub mod tree_state;
 pub mod ui;
 
 use std::collections::HashSet;
@@ -7,6 +9,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -21,7 +24,7 @@ use events::{AppEvent, poll_event};
 pub fn run() -> Result<(), LockpickError> {
     enable_raw_mode().map_err(LockpickError::Io)?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).map_err(LockpickError::Io)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture).map_err(LockpickError::Io)?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(LockpickError::Io)?;
@@ -30,7 +33,12 @@ pub fn run() -> Result<(), LockpickError> {
     let result = run_app(&mut terminal, &mut app);
 
     disable_raw_mode().map_err(LockpickError::Io)?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).map_err(LockpickError::Io)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )
+    .map_err(LockpickError::Io)?;
     terminal.show_cursor().map_err(LockpickError::Io)?;
 
     result
@@ -52,23 +60,79 @@ fn run_app<B: ratatui::backend::Backend>(
             AppEvent::Up => {
                 if app.screen == Screen::Menu {
                     app.prev_menu();
+                } else if app.screen == Screen::Tree {
+                    if let Some(ref mut state) = app.tree_state {
+                        state.tui_state.key_up();
+                    }
+                } else if app.screen == Screen::Results && app.results_selected > 0 {
+                    app.results_selected -= 1;
+                    app.results_auto_scroll = true;
                 }
             }
             AppEvent::Down => {
                 if app.screen == Screen::Menu {
                     app.next_menu();
+                } else if app.screen == Screen::Tree {
+                    if let Some(ref mut state) = app.tree_state {
+                        state.tui_state.key_down();
+                    }
+                } else if app.screen == Screen::Results {
+                    let max_sections = 5;
+                    if app.results_selected < max_sections - 1 {
+                        app.results_selected += 1;
+                        app.results_auto_scroll = true;
+                    }
+                }
+            }
+            AppEvent::Left => {
+                if app.screen == Screen::Tree
+                    && let Some(ref mut state) = app.tree_state
+                {
+                    let selected = state.tui_state.selected().to_vec();
+                    state.tui_state.close(&selected);
+                }
+            }
+            AppEvent::Right => {
+                if app.screen == Screen::Tree
+                    && let Some(ref mut state) = app.tree_state
+                {
+                    let selected = state.tui_state.selected().to_vec();
+                    state.tui_state.open(selected);
                 }
             }
             AppEvent::Select => {
                 if app.screen == Screen::Menu {
                     handle_selection(app);
                 } else if app.screen == Screen::Results {
-                    app.screen = Screen::Menu;
+                    if app.results_expanded.contains(&app.results_selected) {
+                        app.results_expanded.remove(&app.results_selected);
+                    } else {
+                        app.results_expanded.insert(app.results_selected);
+                    }
+                } else if app.screen == Screen::Tree
+                    && let Some(ref mut state) = app.tree_state
+                {
+                    state.tui_state.toggle_selected();
                 }
             }
             AppEvent::Back => {
-                if app.screen == Screen::Results || app.screen == Screen::Settings {
+                if app.screen == Screen::Results
+                    || app.screen == Screen::Settings
+                    || app.screen == Screen::Tree
+                {
                     app.screen = Screen::Menu;
+                }
+            }
+            AppEvent::ScrollUp => {
+                if app.screen == Screen::Results && app.results_scroll > 0 {
+                    app.results_scroll = app.results_scroll.saturating_sub(3);
+                    app.results_auto_scroll = false;
+                }
+            }
+            AppEvent::ScrollDown => {
+                if app.screen == Screen::Results {
+                    app.results_scroll += 3;
+                    app.results_auto_scroll = false;
                 }
             }
             AppEvent::None => {}
@@ -140,10 +204,13 @@ fn handle_selection(app: &mut App) {
         MenuItem::Tree => {
             app.screen = Screen::Scanning;
             app.scan_status = "生成依赖树...".to_string();
-            app.scan_progress = 50;
+            app.scan_progress = 0;
 
-            // Tree 功能暂时跳过，因为它需要特殊的可视化界面
-            app.screen = Screen::Menu;
+            if run_tree(app).is_ok() {
+                app.screen = Screen::Tree;
+            } else {
+                app.screen = Screen::Menu;
+            }
         }
         MenuItem::Outdated => {
             app.screen = Screen::Scanning;
@@ -210,12 +277,13 @@ fn run_scan(
     app.scan_progress = 50;
 
     let reporter = crate::report::NoopReporter;
-    let rt = tokio::runtime::Runtime::new().map_err(LockpickError::Io)?;
 
     app.scan_progress = 70;
 
-    let (_has_issues, result) = rt.block_on(async {
-        crate::runner::run_single(&project_path, &graph, &cfg, &i18n, &reporter).await
+    let (_has_issues, result) = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            crate::runner::run_single(&project_path, &graph, &cfg, &i18n, &reporter).await
+        })
     });
 
     app.scan_progress = 100;
@@ -254,12 +322,13 @@ fn run_fix(app: &mut App) -> Result<crate::AnalysisResult, LockpickError> {
     app.scan_progress = 60;
 
     let reporter = crate::report::NoopReporter;
-    let rt = tokio::runtime::Runtime::new().map_err(LockpickError::Io)?;
 
     app.scan_progress = 80;
 
-    let (_has_issues, result) = rt.block_on(async {
-        crate::runner::run_single(&project_path, &graph, &cfg, &i18n, &reporter).await
+    let (_has_issues, result) = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            crate::runner::run_single(&project_path, &graph, &cfg, &i18n, &reporter).await
+        })
     });
 
     app.scan_progress = 100;
@@ -275,12 +344,12 @@ fn run_outdated(app: &mut App) -> Result<crate::AnalysisResult, LockpickError> {
     let graph = crate::lockfile::detect_and_parse(&project_path)?;
     app.scan_progress = 40;
 
-    let rt = tokio::runtime::Runtime::new().map_err(LockpickError::Io)?;
-
     app.scan_progress = 60;
 
-    let report = rt.block_on(async {
-        crate::outdated::check_outdated(&graph, None, false, None, false, None).await
+    let report = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            crate::outdated::check_outdated(&graph, None, false, None, false, None).await
+        })
     })?;
 
     app.scan_progress = 100;
@@ -316,4 +385,21 @@ fn run_supply_chain(app: &mut App) -> Result<crate::AnalysisResult, LockpickErro
         outdated: None,
         supply_chain: Some(report),
     })
+}
+
+fn run_tree(app: &mut App) -> Result<(), LockpickError> {
+    let project_path = PathBuf::from(".");
+
+    app.scan_progress = 50;
+
+    let graph = crate::lockfile::detect_and_parse_with_edges(&project_path)?;
+    app.scan_progress = 80;
+
+    let tree = crate::tree::DepTree::from_graph(&graph);
+    app.scan_progress = 100;
+
+    app.tree_data = Some(tree);
+    app.tree_state = Some(tree_state::TreeState::new());
+
+    Ok(())
 }

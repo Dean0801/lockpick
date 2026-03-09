@@ -316,12 +316,11 @@ fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<
                     Argument::CallExpression(inner) => {
                         // Recursively process nested call expressions
                         for nested_arg in &inner.arguments {
-                            if let Argument::ImportExpression(imp) = nested_arg {
-                                if let Expression::StringLiteral(lit) = &imp.source
-                                    && let Some(pkg) = normalize_package_name(lit.value.as_str())
-                                {
-                                    packages.insert(pkg);
-                                }
+                            if let Argument::ImportExpression(imp) = nested_arg
+                                && let Expression::StringLiteral(lit) = &imp.source
+                                && let Some(pkg) = normalize_package_name(lit.value.as_str())
+                            {
+                                packages.insert(pkg);
                             }
                         }
                     }
@@ -335,14 +334,16 @@ fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<
                     Argument::ArrayExpression(arr) => {
                         // Process array elements
                         for elem in &arr.elements {
-                            if let Some(Expression::CallExpression(inner_call)) = elem.as_expression() {
+                            if let Some(Expression::CallExpression(inner_call)) =
+                                elem.as_expression()
+                            {
                                 for nested_arg in &inner_call.arguments {
-                                    if let Argument::ImportExpression(imp) = nested_arg {
-                                        if let Expression::StringLiteral(lit) = &imp.source
-                                            && let Some(pkg) = normalize_package_name(lit.value.as_str())
-                                        {
-                                            packages.insert(pkg);
-                                        }
+                                    if let Argument::ImportExpression(imp) = nested_arg
+                                        && let Expression::StringLiteral(lit) = &imp.source
+                                        && let Some(pkg) =
+                                            normalize_package_name(lit.value.as_str())
+                                    {
+                                        packages.insert(pkg);
                                     }
                                 }
                             }

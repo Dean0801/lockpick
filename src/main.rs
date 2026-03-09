@@ -91,8 +91,8 @@ enum Commands {
     /// Visualize dependency tree
     Tree {
         /// Output format: terminal | dot | json | mermaid
-        #[arg(short, long, default_value = "terminal")]
-        format: CliTreeFormat,
+        #[arg(long = "tree-format", default_value = "terminal")]
+        tree_format: CliTreeFormat,
         /// Focus on a specific package
         #[arg(long)]
         focus: Option<String>,
@@ -105,8 +105,8 @@ enum Commands {
         /// Path to baseline JSON file
         baseline: PathBuf,
         /// Output format: terminal | markdown
-        #[arg(short, long, default_value = "terminal")]
-        format: DiffFormat,
+        #[arg(long = "diff-format", default_value = "terminal")]
+        diff_format: DiffFormat,
     },
     /// Check for outdated dependencies
     Outdated {
@@ -162,8 +162,7 @@ enum SemverLevelFilter {
     Major,
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
     // 如果没有子命令且没有 --cli 参数，启动 TUI
@@ -177,6 +176,11 @@ async fn main() -> ExitCode {
         };
     }
 
+    run_async(cli)
+}
+
+#[tokio::main]
+async fn run_async(cli: Cli) -> ExitCode {
     let project_path = cli.path.clone().unwrap_or_else(|| PathBuf::from("."));
 
     if !project_path.exists() {
@@ -216,7 +220,7 @@ async fn main() -> ExitCode {
 
     // Handle tree subcommand (separate pipeline with dep_edges)
     if let Some(Commands::Tree {
-        format,
+        tree_format,
         focus,
         depth,
     }) = &cli.command
@@ -228,7 +232,7 @@ async fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let tree_fmt = match format {
+        let tree_fmt = match tree_format {
             CliTreeFormat::Terminal => lockpick::tree::render::TreeFormat::Terminal,
             CliTreeFormat::Dot => lockpick::tree::render::TreeFormat::Dot,
             CliTreeFormat::Json => lockpick::tree::render::TreeFormat::Json,
@@ -253,7 +257,11 @@ async fn main() -> ExitCode {
     };
 
     // Handle diff subcommand (separate pipeline)
-    if let Some(Commands::Diff { baseline, format }) = &cli.command {
+    if let Some(Commands::Diff {
+        baseline,
+        diff_format,
+    }) = &cli.command
+    {
         let opts = lockpick::analyze::AnalyzeOptions {
             project_path: &project_path,
             graph: &graph,
@@ -282,7 +290,7 @@ async fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         };
-        let out = match format {
+        let out = match diff_format {
             DiffFormat::Terminal => lockpick::diff::render_terminal(&report, &i18n),
             DiffFormat::Markdown => lockpick::diff::render_markdown(&report, &i18n),
         };

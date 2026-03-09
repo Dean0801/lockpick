@@ -6,6 +6,7 @@ pub enum Screen {
     Scanning,
     Results,
     Settings,
+    Tree,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +87,12 @@ pub struct App {
     pub result: Option<AnalysisResult>,
     pub scan_status: String,
     pub scan_progress: u16,
+    pub tree_state: Option<super::tree_state::TreeState>,
+    pub tree_data: Option<crate::tree::DepTree>,
+    pub results_selected: usize,
+    pub results_expanded: std::collections::HashSet<usize>,
+    pub results_scroll: usize,
+    pub results_auto_scroll: bool,
 }
 
 impl Default for App {
@@ -103,6 +110,12 @@ impl App {
             result: None,
             scan_status: String::new(),
             scan_progress: 0,
+            tree_state: None,
+            tree_data: None,
+            results_selected: 0,
+            results_expanded: std::collections::HashSet::new(),
+            results_scroll: 0,
+            results_auto_scroll: true,
         }
     }
 

@@ -43,12 +43,11 @@ const CONFIG_PACKAGE_PATTERNS: &[&str] = &[
 /// Check if a package name indicates it's a config package
 pub fn is_config_package(project_path: &Path) -> bool {
     let pkg_path = project_path.join("package.json");
-    if let Ok(content) = std::fs::read_to_string(&pkg_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(name) = json.get("name").and_then(|n| n.as_str()) {
-                return CONFIG_PACKAGE_PATTERNS.iter().any(|p| name.contains(p));
-            }
-        }
+    if let Ok(content) = std::fs::read_to_string(&pkg_path)
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
+        && let Some(name) = json.get("name").and_then(|n| n.as_str())
+    {
+        return CONFIG_PACKAGE_PATTERNS.iter().any(|p| name.contains(p));
     }
     false
 }

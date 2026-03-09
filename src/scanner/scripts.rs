@@ -31,6 +31,8 @@ static CLI_TO_PACKAGE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock:
         ("commitlint", "commitlint"),
         ("typedoc", "typedoc"),
         ("tsc-alias", "tsc-alias"),
+        ("turbo", "turbo"),
+        ("turbo-run", "@vben/turbo-run"),
     ])
 });
 
