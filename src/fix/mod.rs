@@ -31,6 +31,28 @@ const LOCKFILE_NAMES: &[&str] = &[
     "yarn.lock",
 ];
 
+/// Config package name patterns that should be excluded from fix
+const CONFIG_PACKAGE_PATTERNS: &[&str] = &[
+    "eslint-config",
+    "prettier-config",
+    "stylelint-config",
+    "commitlint-config",
+    "tsconfig",
+];
+
+/// Check if a package name indicates it's a config package
+pub fn is_config_package(project_path: &Path) -> bool {
+    let pkg_path = project_path.join("package.json");
+    if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(name) = json.get("name").and_then(|n| n.as_str()) {
+                return CONFIG_PACKAGE_PATTERNS.iter().any(|p| name.contains(p));
+            }
+        }
+    }
+    false
+}
+
 /// Backup package.json and lockfile before fix. Returns backup dir path.
 pub fn backup_before_fix(project_path: &Path) -> Result<PathBuf, LockpickError> {
     let ts = SystemTime::now()
@@ -113,6 +135,15 @@ pub fn fix_unused(
     lockfile_type: &LockfileType,
     dry_run: bool,
 ) -> Result<FixResult, LockpickError> {
+    // Skip fix for config packages
+    if is_config_package(project_path) {
+        eprintln!("Skipped: config package detected");
+        return Ok(FixResult {
+            removed: vec![],
+            failed: vec![],
+        });
+    }
+
     if unused.is_empty() {
         return Ok(FixResult {
             removed: vec![],

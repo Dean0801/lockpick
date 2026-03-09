@@ -97,10 +97,17 @@ fn is_node_builtin(name: &str) -> bool {
 
 /// Extract all imported package names from a single source file
 pub fn extract_imports_from_source(source: &str, path: &Path) -> HashSet<String> {
+    // Handle Vue SFC: extract <script> content
+    let source_to_parse = if path.extension().and_then(|e| e.to_str()) == Some("vue") {
+        extract_vue_script(source)
+    } else {
+        source.to_string()
+    };
+
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(path).unwrap_or_default();
 
-    let ret = Parser::new(&allocator, source, source_type).parse();
+    let ret = Parser::new(&allocator, &source_to_parse, source_type).parse();
 
     let mut packages = HashSet::new();
 
@@ -109,6 +116,30 @@ pub fn extract_imports_from_source(source: &str, path: &Path) -> HashSet<String>
     }
 
     packages
+}
+
+/// Extract script content from Vue SFC
+fn extract_vue_script(source: &str) -> String {
+    let mut result = String::new();
+    let mut in_script = false;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("<script") {
+            in_script = true;
+            continue;
+        }
+        if trimmed.starts_with("</script>") {
+            in_script = false;
+            continue;
+        }
+        if in_script {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    result
 }
 
 /// Recurse into a block of statements
@@ -283,13 +314,15 @@ fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<
             for arg in &call.arguments {
                 match arg {
                     Argument::CallExpression(inner) => {
-                        // Recurse by directly checking the inner call
-                        if let Expression::Identifier(id) = &inner.callee
-                            && id.name == "require"
-                            && let Some(Argument::StringLiteral(lit)) = inner.arguments.first()
-                            && let Some(pkg) = normalize_package_name(lit.value.as_str())
-                        {
-                            packages.insert(pkg);
+                        // Recursively process nested call expressions
+                        for nested_arg in &inner.arguments {
+                            if let Argument::ImportExpression(imp) = nested_arg {
+                                if let Expression::StringLiteral(lit) = &imp.source
+                                    && let Some(pkg) = normalize_package_name(lit.value.as_str())
+                                {
+                                    packages.insert(pkg);
+                                }
+                            }
                         }
                     }
                     Argument::ImportExpression(imp) => {
@@ -297,6 +330,22 @@ fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<
                             && let Some(pkg) = normalize_package_name(lit.value.as_str())
                         {
                             packages.insert(pkg);
+                        }
+                    }
+                    Argument::ArrayExpression(arr) => {
+                        // Process array elements
+                        for elem in &arr.elements {
+                            if let Some(Expression::CallExpression(inner_call)) = elem.as_expression() {
+                                for nested_arg in &inner_call.arguments {
+                                    if let Argument::ImportExpression(imp) = nested_arg {
+                                        if let Expression::StringLiteral(lit) = &imp.source
+                                            && let Some(pkg) = normalize_package_name(lit.value.as_str())
+                                        {
+                                            packages.insert(pkg);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     _ => {}
@@ -359,6 +408,15 @@ fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<
             }
         }
 
+        // Array: [import('a'), import('b')]
+        Expression::ArrayExpression(arr) => {
+            for elem in &arr.elements {
+                if let Some(expr) = elem.as_expression() {
+                    extract_from_expression(expr, packages);
+                }
+            }
+        }
+
         _ => {}
     }
 }
@@ -367,6 +425,15 @@ fn extract_from_expression<'a>(expr: &'a Expression<'a>, packages: &mut HashSet<
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn test_array_with_dynamic_imports() {
+        let source = r#"const arr = [import('lodash'), import('axios')];"#;
+        let path = Path::new("test.js");
+        let packages = extract_imports_from_source(source, path);
+        assert!(packages.contains("lodash"));
+        assert!(packages.contains("axios"));
+    }
 
     #[test]
     fn test_normalize_scoped_package() {

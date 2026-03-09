@@ -328,6 +328,12 @@ fn run_fix_mode(
     cfg: &RunConfig<'_>,
     i18n: &I18n,
 ) -> bool {
+    // Skip fix for config packages
+    if crate::fix::is_config_package(project_path) {
+        eprintln!("Skipped: config package");
+        return false;
+    }
+
     let unused_report = match &result.unused {
         Some(r) if !r.unused.is_empty() => r,
         _ => {
