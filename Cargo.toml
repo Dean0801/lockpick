@@ -1,6 +1,6 @@
 [package]
 name = "lockpick"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 description = "A blazing-fast JS/TS dependency analyzer CLI built with Rust"
 license = "MIT"
@@ -29,6 +29,7 @@ dirs = "6"
 ratatui = "0.28"
 crossterm = "0.28"
 tui-input = "0.10"
+tui-tree-widget = "0.22"
 
 [dev-dependencies]
 tempfile = "3"
