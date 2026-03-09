@@ -6,10 +6,12 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 
 ## Features
 
-- **Unused dependency detection** — Parses JS/TS source files with [oxc](https://oxc.rs) to find packages you declared but never imported
+- **Unused dependency detection** — Parses JS/TS/Vue source files with [oxc](https://oxc.rs) to find packages you declared but never imported
+- **Vue SFC support** — Extracts and parses `<script>` tags from `.vue` single-file components
 - **Config file awareness** — Scans ESLint, Babel, PostCSS, Vite, Next.js, Webpack, Tailwind config files to detect plugin references (supports JSONC comments)
 - **Scripts awareness** — Parses `package.json` scripts to detect CLI tools (e.g. `tsc` → `typescript`), supports chained commands (`&&`, `||`, `;`, `|`)
 - **Monorepo support** — Detects pnpm/npm/yarn workspaces and analyzes each package independently
+- **Config package protection** — Auto-excludes eslint-config, prettier-config, stylelint-config packages from fix command
 - **Project config (.lockpickrc)** — JSON/YAML config file for persistent ignore rules, language, and extra config paths
 - **Vulnerability scanning** — Queries [OSV.dev](https://osv.dev) for known CVEs, computes CVSS 3.x Base Score from vector strings, with local file cache and progress bar
 - **Duplicate detection** — Finds packages with multiple versions installed in your lockfile
@@ -19,7 +21,7 @@ Analyze your JS/TS project's dependencies in milliseconds — detect unused pack
 - **Outdated detection** — `lockpick-cli outdated` checks npm registry for newer versions with progress bar, correlates with vulnerability data for upgrade priority
 - **Supply chain security** — `lockpick-cli supply-chain` detects typosquatting, scope confusion, and version anomaly attacks; High/Critical risks affect exit code
 - **Multi-lockfile support** — Auto-detects pnpm-lock.yaml, bun.lock, package-lock.json, and yarn.lock (including yarn Berry v2/v3/v4)
-- **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions)
+- **ESM + CJS + dynamic import** — Handles `import`, `require()`, `require.resolve()`, and `import()` syntax with deep AST traversal (if/try/class/arrow functions), supports array expressions and nested call patterns like `Promise.all([import('pkg')])`
 - **CI-friendly** — Exits with code 1 when unused deps or vulnerabilities are found; supports `--fail-on` threshold and `.lockpickrc` thresholds for fine-grained CI gating
 - **Smart @types association** — `@types/react` won't be flagged as unused if `react` is imported
 - **Dependency tree** — `lockpick tree` visualizes the full dependency graph (terminal, DOT, JSON, Mermaid), with `--focus` and `--depth`
