@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::imports::extract_imports_from_source;
 use crate::utils::strip_jsonc_comments;
@@ -45,6 +45,9 @@ const JS_CONFIG_FILES: &[&str] = &[
     "rollup.config.mjs",
     "tsup.config.ts",
     "tsup.config.js",
+    "stylelint.config.js",
+    "stylelint.config.mjs",
+    "stylelint.config.cjs",
 ];
 
 /// Scan JS/TS config files in project root, return imported package names
@@ -56,12 +59,75 @@ pub fn extract_js_config_deps(project_root: &Path) -> HashSet<String> {
         if path.exists()
             && let Ok(source) = std::fs::read_to_string(&path)
         {
+            // First extract regular imports
             let imports = extract_imports_from_source(&source, &path);
             deps.extend(imports);
+
+            // For stylelint config files, also extract extends field
+            if filename.starts_with("stylelint.config")
+                && let Some(filename_str) = path.file_name().and_then(|n| n.to_str())
+            {
+                let extends = extract_extends_from_js_config(&source, filename_str);
+                deps.extend(extends);
+            }
         }
     }
 
     deps
+}
+
+/// Extract extends field from JS config files (stylelint, eslint, etc.)
+/// Handles patterns like: extends: ['@vben/stylelint-config'] or extends: "config-name"
+fn extract_extends_from_js_config(source: &str, _filename: &str) -> HashSet<String> {
+    let mut deps = HashSet::new();
+
+    // Simple regex-like pattern matching for extends field
+    // Matches: extends: ['pkg1', 'pkg2'] or extends: ["pkg1", "pkg2"] or extends: "pkg" or extends: 'pkg'
+    let extends_patterns = [
+        // extends: ['pkg1', 'pkg2'] or extends: ["pkg1", "pkg2"]
+        r"extends\s*:\s*\[([^\]]+)\]",
+        // extends: "pkg"
+        r"extends\s*:\s*\x22([^\x22]+)\x22",
+        // extends: 'pkg'
+        r"extends\s*:\s*'([^']+)'",
+    ];
+
+    for pattern in &extends_patterns {
+        let regex = regex::Regex::new(pattern).unwrap();
+        for cap in regex.captures_iter(source) {
+            if let Some(matched) = cap.get(1) {
+                let content = matched.as_str();
+                // Extract package names from array or single string
+                for line in content.split(',') {
+                    let pkg = line.trim().trim_matches('"').trim_matches('\'');
+                    if !pkg.is_empty() && !pkg.starts_with('.') {
+                        // Extract package name (handle @scope/name/subpath -> @scope/name)
+                        let pkg_name = extract_package_name_from_extends(pkg);
+                        deps.insert(pkg_name);
+                    }
+                }
+            }
+        }
+    }
+
+    deps
+}
+
+/// Extract package name from extends value
+/// Handles: @scope/name/subpath -> @scope/name, package-name/config -> package-name
+fn extract_package_name_from_extends(extends: &str) -> String {
+    if extends.starts_with('@') {
+        // Scoped package: @scope/name/subpath -> @scope/name
+        let parts: Vec<&str> = extends.split('/').collect();
+        if parts.len() >= 2 {
+            format!("{}/{}", parts[0], parts[1])
+        } else {
+            extends.to_string()
+        }
+    } else {
+        // Regular package: package-name/config -> package-name
+        extends.split('/').next().unwrap_or(extends).to_string()
+    }
 }
 
 /// Scan extra config files specified by user in .lockpickrc
@@ -109,14 +175,39 @@ const JSON_CONFIG_RULES: &[JsonConfigRule] = &[
         fields: &["plugins"],
         prefixes: &[],
     },
+    // tsconfig.json extends field for shared configs like @vben/tsconfig
+    JsonConfigRule {
+        filenames: &["tsconfig.json"],
+        fields: &["extends"],
+        prefixes: &[],
+    },
+    // stylelint extends field for shared configs like @vben/stylelint-config
+    JsonConfigRule {
+        filenames: &[".stylelintrc", ".stylelintrc.json", ".stylelintrc.yml", ".stylelintrc.yaml"],
+        fields: &["extends", "plugins"],
+        prefixes: &["stylelint-"],
+    },
 ];
 
 fn expand_plugin_name(short_name: &str, prefixes: &[&str]) -> Vec<String> {
-    // Strip "plugin:X/config" format → extract "X"
+    // Strip "plugin:X/config" format -> extract "X"
     let name = if let Some(stripped) = short_name.strip_prefix("plugin:") {
         stripped.split('/').next().unwrap_or(stripped)
     } else {
         short_name
+    };
+
+    // For scoped packages like @vben/tsconfig/web-app.json, extract just @vben/tsconfig
+    let name = if name.starts_with('@') {
+        // Count slashes: @scope/name has 1, @scope/name/subpath has 2+
+        let parts: Vec<&str> = name.split('/').collect();
+        if parts.len() >= 2 {
+            format!("{}/{}", parts[0], parts[1])
+        } else {
+            name.to_string()
+        }
+    } else {
+        name.to_string()
     };
 
     if name.starts_with('@') || prefixes.iter().any(|p| name.starts_with(p)) {
@@ -151,19 +242,74 @@ fn extract_json_string_values(value: &serde_json::Value) -> Vec<String> {
     }
 }
 
+/// Directories to exclude when scanning for config files
+const CONFIG_EXCLUDE_DIRS: &[&str] = &["node_modules", "dist", "build", ".git", ".next", "coverage", ".turbo"];
+
+/// Recursively find all config files matching the given filenames
+fn find_config_files(root: &Path, filenames: &[&str]) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+
+    let walker = walkdir::WalkDir::new(root).into_iter().filter_entry(|entry| {
+        if entry.file_type().is_dir()
+            && let Some(name) = entry.file_name().to_str()
+        {
+            return !CONFIG_EXCLUDE_DIRS.contains(&name);
+        }
+        true
+    });
+
+    for entry in walker {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if entry.file_type().is_file() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if filenames.contains(&name) {
+                    if let Ok(content) = std::fs::read_to_string(path) {
+                        files.push((path.to_path_buf(), content));
+                    }
+                }
+            }
+        }
+    }
+
+    files
+}
+
+/// Config files that should be scanned recursively in monorepo sub-packages
+const RECURSIVE_CONFIG_FILES: &[&str] = &["tsconfig.json", ".stylelintrc", ".stylelintrc.json", ".stylelintrc.yml", ".stylelintrc.yaml"];
+
 pub fn extract_json_config_deps(project_root: &Path) -> HashSet<String> {
     let mut deps = HashSet::new();
 
     for rule in JSON_CONFIG_RULES {
-        for filename in rule.filenames {
-            let path = project_root.join(filename);
-            if !path.exists() {
-                continue;
-            }
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+        // Collect all filenames for this rule
+        let filenames: Vec<&str> = rule.filenames.iter().copied().collect();
+
+        // For tsconfig.json and stylelint configs, scan recursively; for others, only check root
+        let should_scan_recursively = rule.filenames.iter().any(|f| RECURSIVE_CONFIG_FILES.contains(f));
+        let files: Vec<(PathBuf, String)> = if should_scan_recursively {
+            find_config_files(project_root, &filenames)
+        } else {
+            // For other config files, only check project root
+            filenames
+                .iter()
+                .filter_map(|&f| {
+                    let path = project_root.join(f);
+                    if path.exists() {
+                        std::fs::read_to_string(&path).ok().map(|c| (path, c))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        for (path, content) in files {
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             let json: serde_json::Value =
                 if filename.ends_with(".yml") || filename.ends_with(".yaml") {
                     match serde_yml::from_str(&content) {
@@ -415,23 +561,114 @@ export default defineConfig({ plugins: [react()] });
     }
 
     #[test]
-    fn test_jsonc_config_with_comments() {
+    fn test_extract_tsconfig_extends_recursive() {
         let dir = tempfile::tempdir().unwrap();
 
+        // Root tsconfig.json
         fs::write(
-            dir.path().join(".eslintrc.json"),
+            dir.path().join("tsconfig.json"),
             r#"{
-                // Enable react plugin
-                "plugins": ["react"],
-                /* Multi-line
-                   comment */
-                "extends": ["airbnb"]
+                "extends": "@org/root-tsconfig"
+            }"#,
+        )
+        .unwrap();
+
+        // Sub-package tsconfig.json
+        let sub_pkg = dir.path().join("packages/web");
+        fs::create_dir_all(&sub_pkg).unwrap();
+        fs::write(
+            sub_pkg.join("tsconfig.json"),
+            r#"{
+                "extends": "@vben/tsconfig/web-app.json"
             }"#,
         )
         .unwrap();
 
         let deps = extract_json_config_deps(dir.path());
-        assert!(deps.contains("eslint-plugin-react"));
-        assert!(deps.contains("eslint-config-airbnb"));
+        assert!(deps.contains("@org/root-tsconfig"));
+        assert!(deps.contains("@vben/tsconfig"));
+    }
+
+    #[test]
+    fn test_extract_stylelint_extends_recursive() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Root .stylelintrc.json
+        fs::write(
+            dir.path().join(".stylelintrc.json"),
+            r#"{
+                "extends": "stylelint-config-standard"
+            }"#,
+        )
+        .unwrap();
+
+        // Sub-package .stylelintrc.json
+        let sub_pkg = dir.path().join("packages/web");
+        fs::create_dir_all(&sub_pkg).unwrap();
+        fs::write(
+            sub_pkg.join(".stylelintrc.json"),
+            r#"{
+                "extends": "@vben/stylelint-config"
+            }"#,
+        )
+        .unwrap();
+
+        let deps = extract_json_config_deps(dir.path());
+        assert!(deps.contains("stylelint-config-standard"));
+        assert!(deps.contains("@vben/stylelint-config"));
+    }
+
+    #[test]
+    fn test_extract_stylelint_js_config_extends() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // stylelint.config.mjs with extends
+        fs::write(
+            dir.path().join("stylelint.config.mjs"),
+            r#"export default {
+  extends: ['@vben/stylelint-config'],
+  root: true,
+};"#,
+        )
+        .unwrap();
+
+        let deps = extract_js_config_deps(dir.path());
+        assert!(deps.contains("@vben/stylelint-config"));
+    }
+
+    #[test]
+    fn test_extract_stylelint_js_config_extends_double_quotes() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // stylelint.config.mjs with double quotes
+        fs::write(
+            dir.path().join("stylelint.config.mjs"),
+            r#"export default {
+  extends: ["@vben/stylelint-config"],
+  root: true,
+};"#,
+        )
+        .unwrap();
+
+        let deps = extract_js_config_deps(dir.path());
+        assert!(deps.contains("@vben/stylelint-config"));
+    }
+
+    #[test]
+    fn test_extract_stylelint_js_config_extends_single_string() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // stylelint.config.mjs with single string (not array)
+        fs::write(
+            dir.path().join("stylelint.config.mjs"),
+            r#"export default {
+  extends: "@vben/stylelint-config",
+  root: true,
+};"#,
+        )
+        .unwrap();
+
+        let deps = extract_js_config_deps(dir.path());
+        assert!(deps.contains("@vben/stylelint-config"));
     }
 }
